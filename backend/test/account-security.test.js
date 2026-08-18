@@ -125,6 +125,120 @@ async function run() {
     );
     assert.equal(revokeOthers.status, 200);
     assert.equal(revokeOthers.payload.ok, true);
+
+    // Regression: refresh rota el refresh token dentro del mismo sid. Logout
+    // debe poder revocar ESE sid usando el bearer firmado aunque el cliente aun
+    // mande el refresh token anterior, sin tumbar otra sesion del usuario.
+    const raceLogin = await login(baseUrl, "NuevaRuta456!");
+    assert.equal(raceLogin.status, 200);
+
+    const racePushToken = "fcm-account-security-race-token";
+    const pushRegistered = await requestJson(
+      baseUrl,
+      "POST",
+      "/notifications/push-subscriptions",
+      {
+        token: racePushToken,
+        platform: "android",
+        deviceName: "account-security-test"
+      },
+      raceLogin.payload.token
+    );
+    assert.equal(pushRegistered.status, 201);
+
+    const rotated = await requestJson(
+      baseUrl,
+      "POST",
+      "/auth/refresh",
+      { refreshToken: raceLogin.payload.refreshToken }
+    );
+    assert.equal(rotated.status, 200);
+    assert.notEqual(rotated.payload.refreshToken, raceLogin.payload.refreshToken);
+
+    const exactLogout = await requestJson(
+      baseUrl,
+      "POST",
+      "/auth/logout",
+      {
+        // Deliberadamente stale: simula la carrera refresh -> logout.
+        refreshToken: raceLogin.payload.refreshToken,
+        // Simula el fallback server-side si el DELETE push del dispositivo no
+        // alcanzo a completarse antes del teardown.
+        pushToken: racePushToken
+      },
+      raceLogin.payload.token
+    );
+    assert.equal(exactLogout.status, 200);
+    assert.equal(exactLogout.payload.ok, true);
+
+    const rotatedSessionRevoked = await requestJson(
+      baseUrl,
+      "GET",
+      "/auth/me",
+      undefined,
+      rotated.payload.token
+    );
+    assert.equal(rotatedSessionRevoked.status, 401);
+
+    const independentSessionStillActive = await requestJson(
+      baseUrl,
+      "GET",
+      "/auth/me",
+      undefined,
+      newPasswordLogin.payload.token
+    );
+    assert.equal(independentSessionStillActive.status, 200);
+
+    const raceUser = await store.getUserById(raceLogin.payload.user.id);
+    assert.equal(
+      (raceUser.pushSubscriptions || []).some((entry) => entry.token === racePushToken),
+      false
+    );
+
+    // Un bearer de una sesion YA revocada no debe conservar una capacidad
+    // lateral para retirar tokens push registrados por otra sesion del usuario.
+    const independentPushToken = "fcm-independent-active-session-token";
+    const independentPushRegistered = await requestJson(
+      baseUrl,
+      "POST",
+      "/notifications/push-subscriptions",
+      {
+        token: independentPushToken,
+        platform: "android",
+        deviceName: "independent-session-test"
+      },
+      newPasswordLogin.payload.token
+    );
+    assert.equal(independentPushRegistered.status, 201);
+
+    const replayedOldLogout = await requestJson(
+      baseUrl,
+      "POST",
+      "/auth/logout",
+      {
+        refreshToken: raceLogin.payload.refreshToken,
+        pushToken: independentPushToken
+      },
+      raceLogin.payload.token
+    );
+    assert.equal(replayedOldLogout.status, 200);
+
+    const userAfterReplay = await store.getUserById(raceLogin.payload.user.id);
+    assert.equal(
+      (userAfterReplay.pushSubscriptions || []).some(
+        (entry) => entry.token === independentPushToken
+      ),
+      true
+    );
+
+    const independentSessionAfterReplay = await requestJson(
+      baseUrl,
+      "GET",
+      "/auth/me",
+      undefined,
+      newPasswordLogin.payload.token
+    );
+    assert.equal(independentSessionAfterReplay.status, 200);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

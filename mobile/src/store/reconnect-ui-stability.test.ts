@@ -20,12 +20,13 @@ describe('mobile reconnect UI stability', () => {
     const rootStore = fs.readFileSync(path.join(mobileRoot, 'src', 'store', 'root-store.ts'), 'utf8');
     const reconnectRuntime = sourceBetween(
       rootStore,
-      "socket.io.on('reconnect_attempt'",
-      "socket.on('disconnect'"
+      "sessionSocket.io.on('reconnect_attempt'",
+      "sessionSocket.on('disconnect'"
     );
 
     expect(reconnectRuntime).toContain("setSocketTransition(set, 'connected', 'socket_reconnected'");
     expect(reconnectRuntime).toContain('Promise.allSettled([');
+    expect(reconnectRuntime).toContain('if (!isSocketSessionCurrent()) return;');
     expect(reconnectRuntime).not.toContain("networkStatus: 'recovering'");
     expect(reconnectRuntime).not.toContain("'socket_reconciling'");
     expect(reconnectRuntime).not.toContain("'socket_reconciled'");

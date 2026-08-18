@@ -19,12 +19,21 @@ describe('shared presence contract', () => {
     'utf8'
   );
 
-  it('keeps Mobile periodic work heartbeat-only', () => {
-    const timer = section(mobileStore, 'socketHeartbeatTimer = setInterval(() => {', 'socket.connect();');
+  it('keeps Mobile periodic work heartbeat-only on the captured session socket', () => {
+    const timer = section(
+      mobileStore,
+      'socketHeartbeatTimer = setInterval(() => {',
+      'sessionSocket.connect();'
+    );
     expect(timer).toContain('emitHeartbeat();');
     expect(timer).not.toContain('emitCurrentPresence');
-    expect(mobileStore).toContain("socket.on('connect', () => {");
+    expect(mobileStore).toContain("sessionSocket.on('connect', () => {");
+    expect(mobileStore).toContain('if (!isSocketSessionCurrent()) return;');
     expect(mobileStore).toContain('emitCurrentPresence(get);');
+
+    // Solo existe un transporte Socket.IO; sessionSocket es la referencia
+    // capturada de esa misma instancia para que los callbacks no crucen epochs.
+    expect(mobileStore.match(/io\(SOCKET_URL/g) || []).toHaveLength(1);
   });
 
   it('keeps Portal alive beyond the 55-second lease on the existing socket', () => {

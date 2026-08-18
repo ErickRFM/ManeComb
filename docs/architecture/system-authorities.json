@@ -2,58 +2,100 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "00b41b777433df2356f5e6ca9a139703b82558f9",
+    "commit": "110ae1d11c63b933be1cd5f5d3de1346b62e8f91",
     "capturedAt": "2026-08-18",
-    "phase": "post-activation-key-history-and-ola8-platform-authority"
+    "phase": "post-portal-media-offline-and-mobile-session-lifecycle-reconciliation"
   },
   "products": [
     {
       "id": "backend",
       "name": "Backend API",
-      "rootPaths": ["backend"],
+      "rootPaths": [
+        "backend"
+      ],
       "runtime": "Node.js and Express on Render",
-      "audience": ["system"],
-      "allowedChannels": ["company_portal", "mobile_operations", "platform_admin"]
+      "audience": [
+        "system"
+      ],
+      "allowedChannels": [
+        "company_portal",
+        "mobile_operations",
+        "platform_admin"
+      ]
     },
     {
       "id": "sales-portal",
       "name": "Ventas and company Portal",
-      "rootPaths": ["ventas"],
+      "rootPaths": [
+        "ventas"
+      ],
       "runtime": "Cloudflare Pages",
-      "audience": ["public", "company"],
-      "allowedChannels": ["public", "company_portal"],
-      "forbiddenResponsibilities": ["live GPS ingestion", "radio runtime", "RTC call runtime"]
+      "audience": [
+        "public",
+        "company"
+      ],
+      "allowedChannels": [
+        "public",
+        "company_portal"
+      ],
+      "forbiddenResponsibilities": [
+        "live GPS ingestion",
+        "radio runtime",
+        "RTC call runtime"
+      ]
     },
     {
       "id": "mobile",
       "name": "Operational mobile application",
-      "rootPaths": ["mobile"],
+      "rootPaths": [
+        "mobile"
+      ],
       "runtime": "React Native Android is provisioned and CI-certified; iOS remains an unprovisioned target without a native project or release artifact",
-      "audience": ["operations"],
-      "allowedChannels": ["mobile_operations"]
+      "audience": [
+        "operations"
+      ],
+      "allowedChannels": [
+        "mobile_operations"
+      ]
     },
     {
       "id": "admin-global",
       "name": "ManeComb internal administration",
-      "rootPaths": ["admin-global"],
+      "rootPaths": [
+        "admin-global"
+      ],
       "runtime": "Cloudflare Workers Static Assets behind Cloudflare Access",
-      "audience": ["platform_staff"],
-      "allowedChannels": ["platform_admin"]
+      "audience": [
+        "platform_staff"
+      ],
+      "allowedChannels": [
+        "platform_admin"
+      ]
     },
     {
       "id": "communication-service",
       "name": "Communication package",
-      "rootPaths": ["communication-service"],
+      "rootPaths": [
+        "communication-service"
+      ],
       "runtime": "Internal Node.js package installed by backend",
-      "audience": ["system"],
+      "audience": [
+        "system"
+      ],
       "allowedChannels": []
     },
     {
       "id": "shared-contracts",
       "name": "Shared cross-product contracts",
-      "rootPaths": ["shared/operational-contract", "shared/browser-session", "shared/communication"],
+      "rootPaths": [
+        "shared/operational-contract",
+        "shared/browser-session",
+        "shared/communication"
+      ],
       "runtime": "Source contracts consumed during builds",
-      "audience": ["system"],
+      "audience": [
+        "system"
+      ],
       "allowedChannels": []
     },
     {
@@ -68,7 +110,9 @@
         "docker-compose.prod.yml"
       ],
       "runtime": "GitHub Actions, Docker, Cloudflare and Render configuration",
-      "audience": ["system"],
+      "audience": [
+        "system"
+      ],
       "allowedChannels": []
     }
   ],
@@ -78,8 +122,37 @@
       "decision": "Who the authenticated actor is and whether the session is valid",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/auth", "backend/src/modules/account-security"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/modules/auth",
+        "backend/src/modules/account-security",
+        "backend/src/services/sessions.js",
+        "backend/src/utils/jwt.js"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
+      "targetPhase": 1
+    },
+    {
+      "id": "mobile-session-runtime-identity",
+      "decision": "Which authenticated Mobile identity may still commit in-flight HTTP, SecureStore, offline replay, Socket.IO/ACK, chat and push side effects after refresh, logout or account change",
+      "owner": "mobile",
+      "status": "canonical",
+      "sourcePaths": [
+        "mobile/src/store/session-epoch.ts",
+        "mobile/src/api/api-session-boundary.ts",
+        "mobile/src/native/secure-store.ts",
+        "mobile/src/store/root-store.ts",
+        "backend/src/services/sessions.js",
+        "backend/src/utils/jwt.js",
+        "backend/src/modules/auth/routes.js"
+      ],
+      "consumers": [
+        "mobile",
+        "backend"
+      ],
       "targetPhase": 1
     },
     {
@@ -92,7 +165,10 @@
         "ventas/src/session/single-browser-account-guard.tsx",
         "admin-global/src/features/auth/components/single-browser-account-guard.tsx"
       ],
-      "consumers": ["sales-portal", "admin-global"],
+      "consumers": [
+        "sales-portal",
+        "admin-global"
+      ],
       "targetPhase": 1
     },
     {
@@ -107,7 +183,11 @@
         "ventas/features/portal/utils/access.ts",
         "mobile/src/utils/account-routing.ts"
       ],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 1
     },
     {
@@ -115,8 +195,16 @@
       "decision": "Which API requests consume anonymous, authenticated, media or auth-specific rate-limit budgets",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/middlewares/api-rate-limit.js", "backend/src/middlewares/enterprise-rate-limit.js", "backend/src/modules/auth"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/middlewares/api-rate-limit.js",
+        "backend/src/middlewares/enterprise-rate-limit.js",
+        "backend/src/modules/auth"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 1
     },
     {
@@ -129,7 +217,11 @@
         "backend/src/data",
         "backend/src/services/journey-transition-service.js"
       ],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 2
     },
     {
@@ -137,8 +229,17 @@
       "decision": "Which actions an actor may execute after authentication",
       "owner": "backend",
       "status": "partial",
-      "sourcePaths": ["backend/src/services/enterprise-capabilities.js", "backend/src/middlewares", "ventas/features/portal/utils/access.ts", "admin-global/src/features/platform"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/services/enterprise-capabilities.js",
+        "backend/src/middlewares",
+        "ventas/features/portal/utils/access.ts",
+        "admin-global/src/features/platform"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 2
     },
     {
@@ -146,8 +247,14 @@
       "decision": "Which non-credential personal and company profile fields an authenticated user may mutate directly",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/services/profile-authority.js", "backend/src/modules/users/routes.js"],
-      "consumers": ["mobile", "sales-portal"],
+      "sourcePaths": [
+        "backend/src/services/profile-authority.js",
+        "backend/src/modules/users/routes.js"
+      ],
+      "consumers": [
+        "mobile",
+        "sales-portal"
+      ],
       "targetPhase": 2
     },
     {
@@ -161,7 +268,10 @@
         "mobile/src/api/account-security.ts",
         "mobile/src/screens/driver-profile-edit-screen.tsx"
       ],
-      "consumers": ["mobile", "sales-portal"],
+      "consumers": [
+        "mobile",
+        "sales-portal"
+      ],
       "targetPhase": 1
     },
     {
@@ -169,8 +279,17 @@
       "decision": "Which staff roles may be created by administration, which account channel each role belongs to, and whether role/channel may change after creation",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/services/managed-user-profile-policy.js", "backend/src/services/user-service.js", "backend/src/modules/users/routes.js", "backend/src/data/serializers.js"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/services/managed-user-profile-policy.js",
+        "backend/src/services/user-service.js",
+        "backend/src/modules/users/routes.js",
+        "backend/src/data/serializers.js"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 2
     },
     {
@@ -178,8 +297,16 @@
       "decision": "Available plans, prices, included capacity and commercial benefits",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/config/commercial-plans.js", "backend/src/modules/commercial", "ventas/features/commercial"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/config/commercial-plans.js",
+        "backend/src/modules/commercial",
+        "ventas/features/commercial"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 4
     },
     {
@@ -195,7 +322,11 @@
         "backend/src/modules/activation-keys",
         "backend/src/services/portal-account.js"
       ],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 4
     },
     {
@@ -203,8 +334,14 @@
       "decision": "Manual SPEI evidence version, review lease, sticky approval or rejection decision and durable recovery after activation",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/manual-payments", "backend/src/modules/platform/manual-payment-routes.js"],
-      "consumers": ["sales-portal", "admin-global"],
+      "sourcePaths": [
+        "backend/src/modules/manual-payments",
+        "backend/src/modules/platform/manual-payment-routes.js"
+      ],
+      "consumers": [
+        "sales-portal",
+        "admin-global"
+      ],
       "targetPhase": 4
     },
     {
@@ -212,8 +349,17 @@
       "decision": "Lifecycle and operational identity of vehicles and drivers, including retirement, offboarding and current inventory membership",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/vehicles", "backend/src/modules/operational-units", "backend/src/services/driver-lifecycle.js", "backend/src/data/repositories/fleet-repository.js"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/modules/vehicles",
+        "backend/src/modules/operational-units",
+        "backend/src/services/driver-lifecycle.js",
+        "backend/src/data/repositories/fleet-repository.js"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 5
     },
     {
@@ -225,9 +371,15 @@
         "backend/src/modules/navigation",
         "backend/src/services/route-session-creation-guard.js",
         "backend/src/services/journey-transition-service.js",
-        "shared/operational-contract"
+        "shared/operational-contract",
+        "mobile/src/api/offline-cache.ts",
+        "mobile/src/services/route-session-actions.ts",
+        "mobile/android/app/src/main/java/com/anonymous/combiscontrol/location/ManeCombLocationService.kt"
       ],
-      "consumers": ["sales-portal", "mobile"],
+      "consumers": [
+        "sales-portal",
+        "mobile"
+      ],
       "targetPhase": 6
     },
     {
@@ -235,8 +387,13 @@
       "decision": "Which asynchronous route-plan response is still allowed to update the Portal route editor",
       "owner": "sales-portal",
       "status": "canonical",
-      "sourcePaths": ["ventas/features/portal/routes", "ventas/features/portal/screens/portal-routes-screen.tsx"],
-      "consumers": ["sales-portal"],
+      "sourcePaths": [
+        "ventas/features/portal/routes",
+        "ventas/features/portal/screens/portal-routes-screen.tsx"
+      ],
+      "consumers": [
+        "sales-portal"
+      ],
       "targetPhase": 6
     },
     {
@@ -244,8 +401,18 @@
       "decision": "Accepted positions, capture freshness, transport receipt, operational movement, deviation and route progress",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/locations", "backend/src/domain/operational-unit-snapshot.js", "backend/src/services/vehicle-location-ingestion.js", "backend/src/services/operational-units-service.js", "backend/src/services/operational-freshness-sweeper.js"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/modules/locations",
+        "backend/src/domain/operational-unit-snapshot.js",
+        "backend/src/services/vehicle-location-ingestion.js",
+        "backend/src/services/operational-units-service.js",
+        "backend/src/services/operational-freshness-sweeper.js"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 6
     },
     {
@@ -253,8 +420,16 @@
       "decision": "Document ownership, review state, evidence, retention and explicit legacy migration",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/documents", "backend/src/services/storage.js", "backend/scripts/migrate-legacy-documents.js"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/modules/documents",
+        "backend/src/services/storage.js",
+        "backend/scripts/migrate-legacy-documents.js"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 5
     },
     {
@@ -262,8 +437,15 @@
       "decision": "Incident lifecycle and concurrency-safe status transition within the owning tenant",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/incidents", "backend/src/data/repositories/incident-repository.js"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/modules/incidents",
+        "backend/src/data/repositories/incident-repository.js"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 5
     },
     {
@@ -276,9 +458,15 @@
         "backend/modules/communication",
         "backend/src/sockets",
         "shared/communication",
-        "ventas/features/portal/communication"
+        "ventas/features/portal/communication",
+        "backend/src/services/chat-media.js",
+        "ventas/features/portal/communication/authenticated-media.tsx"
       ],
-      "consumers": ["backend", "mobile", "sales-portal"],
+      "consumers": [
+        "backend",
+        "mobile",
+        "sales-portal"
+      ],
       "targetPhase": 7
     },
     {
@@ -286,8 +474,16 @@
       "decision": "Which tenant users may remain visible, addressable or connected to live Chat, Radio and push after lifecycle transitions",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/services/operational-communications-guard.js", "backend/src/services/driver-lifecycle.js", "backend/src/sockets/index.js"],
-      "consumers": ["backend", "mobile", "sales-portal"],
+      "sourcePaths": [
+        "backend/src/services/operational-communications-guard.js",
+        "backend/src/services/driver-lifecycle.js",
+        "backend/src/sockets/index.js"
+      ],
+      "consumers": [
+        "backend",
+        "mobile",
+        "sales-portal"
+      ],
       "targetPhase": 7
     },
     {
@@ -302,7 +498,11 @@
         "shared/communication",
         "ventas/features/portal/communication"
       ],
-      "consumers": ["backend", "mobile", "sales-portal"],
+      "consumers": [
+        "backend",
+        "mobile",
+        "sales-portal"
+      ],
       "targetPhase": 7
     },
     {
@@ -310,8 +510,17 @@
       "decision": "Durable RTC session history, participants, relay usage, completion reason and duration",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/rtc/session-coordinator.js", "backend/src/data/repositories/session-repository.js", "backend/src/data/models.js"],
-      "consumers": ["backend", "mobile", "sales-portal", "admin-global"],
+      "sourcePaths": [
+        "backend/src/modules/rtc/session-coordinator.js",
+        "backend/src/data/repositories/session-repository.js",
+        "backend/src/data/models.js"
+      ],
+      "consumers": [
+        "backend",
+        "mobile",
+        "sales-portal",
+        "admin-global"
+      ],
       "targetPhase": 7
     },
     {
@@ -319,8 +528,16 @@
       "decision": "Private Admin Global origin access, Platform session, MFA and Platform RBAC",
       "owner": "infrastructure",
       "status": "external-configuration-pending",
-      "sourcePaths": ["admin-global", "backend/src/modules/platform", "docs/admin-global-private-deployment.md", "docs/render-production-readiness.md"],
-      "consumers": ["admin-global", "backend"],
+      "sourcePaths": [
+        "admin-global",
+        "backend/src/modules/platform",
+        "docs/admin-global-private-deployment.md",
+        "docs/render-production-readiness.md"
+      ],
+      "consumers": [
+        "admin-global",
+        "backend"
+      ],
       "targetPhase": 9
     },
     {
@@ -328,8 +545,13 @@
       "decision": "Version and Android build number compiled into the mobile artifact",
       "owner": "mobile",
       "status": "canonical",
-      "sourcePaths": ["mobile/app.json"],
-      "consumers": ["mobile", "infrastructure"],
+      "sourcePaths": [
+        "mobile/app.json"
+      ],
+      "consumers": [
+        "mobile",
+        "infrastructure"
+      ],
       "targetPhase": 3
     },
     {
@@ -337,8 +559,17 @@
       "decision": "Which Android release metadata is publicly published and used for update availability",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/data/repositories/app-release-repository.js", "backend/src/data/app-release-models.js", "backend/src/modules/app", "backend/src/modules/platform/system-authority-routes.js"],
-      "consumers": ["mobile", "sales-portal", "admin-global"],
+      "sourcePaths": [
+        "backend/src/data/repositories/app-release-repository.js",
+        "backend/src/data/app-release-models.js",
+        "backend/src/modules/app",
+        "backend/src/modules/platform/system-authority-routes.js"
+      ],
+      "consumers": [
+        "mobile",
+        "sales-portal",
+        "admin-global"
+      ],
       "targetPhase": 3
     },
     {
@@ -346,8 +577,13 @@
       "decision": "Which authenticated mobile account owns the persisted light/dark appearance preference without leaking it to another account",
       "owner": "mobile",
       "status": "canonical",
-      "sourcePaths": ["mobile/src/hooks/use-app-theme.ts", "mobile/src/store/theme-preference.ts"],
-      "consumers": ["mobile"],
+      "sourcePaths": [
+        "mobile/src/hooks/use-app-theme.ts",
+        "mobile/src/store/theme-preference.ts"
+      ],
+      "consumers": [
+        "mobile"
+      ],
       "targetPhase": 3
     },
     {
@@ -355,8 +591,23 @@
       "decision": "Required environment variables, deployment URLs, provider ownership and versioned Render service contract",
       "owner": "infrastructure",
       "status": "canonical",
-      "sourcePaths": ["scripts/validate-environment-contract.mjs", "scripts/validate-render-blueprint.mjs", "render.yaml", "docs/render-production-readiness.md", "backend/.env.example", "ventas/.env.example", "mobile/.env.example", "admin-global/.env.example"],
-      "consumers": ["backend", "sales-portal", "mobile", "admin-global", "communication-service"],
+      "sourcePaths": [
+        "scripts/validate-environment-contract.mjs",
+        "scripts/validate-render-blueprint.mjs",
+        "render.yaml",
+        "docs/render-production-readiness.md",
+        "backend/.env.example",
+        "ventas/.env.example",
+        "mobile/.env.example",
+        "admin-global/.env.example"
+      ],
+      "consumers": [
+        "backend",
+        "sales-portal",
+        "mobile",
+        "admin-global",
+        "communication-service"
+      ],
       "targetPhase": 8
     },
     {
@@ -364,8 +615,17 @@
       "decision": "Whether a Ready PR has real physical PASS, justified N/A, or explicitly accepted pending hardware evidence",
       "owner": "infrastructure",
       "status": "canonical",
-      "sourcePaths": ["scripts/validate-pr-physical-gate.mjs", ".github/workflows/system-audit-gates.yml", ".github/pull_request_template.md"],
-      "consumers": ["backend", "sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "scripts/validate-pr-physical-gate.mjs",
+        ".github/workflows/system-audit-gates.yml",
+        ".github/pull_request_template.md"
+      ],
+      "consumers": [
+        "backend",
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 8
     },
     {
@@ -382,7 +642,15 @@
         "README.md",
         "SECURITY.md"
       ],
-      "consumers": ["backend", "sales-portal", "mobile", "admin-global", "communication-service", "shared-contracts", "infrastructure"],
+      "consumers": [
+        "backend",
+        "sales-portal",
+        "mobile",
+        "admin-global",
+        "communication-service",
+        "shared-contracts",
+        "infrastructure"
+      ],
       "targetPhase": 8
     },
     {
@@ -390,8 +658,17 @@
       "decision": "Append-only security and business evidence for sensitive actions through a repository/service persistence boundary",
       "owner": "backend",
       "status": "canonical",
-      "sourcePaths": ["backend/src/modules/audit-logs", "backend/src/services/audit.js", "backend/src/services/audit-log-service.js", "backend/src/data/repositories/audit-log-repository.js", "backend/src/modules/platform"],
-      "consumers": ["sales-portal", "admin-global"],
+      "sourcePaths": [
+        "backend/src/modules/audit-logs",
+        "backend/src/services/audit.js",
+        "backend/src/services/audit-log-service.js",
+        "backend/src/data/repositories/audit-log-repository.js",
+        "backend/src/modules/platform"
+      ],
+      "consumers": [
+        "sales-portal",
+        "admin-global"
+      ],
       "targetPhase": 8
     },
     {
@@ -399,8 +676,16 @@
       "decision": "Stable error codes, safe messages, recoverability and request correlation",
       "owner": "backend",
       "status": "partial",
-      "sourcePaths": ["backend/src/middlewares", "ventas/src", "mobile/src"],
-      "consumers": ["sales-portal", "mobile", "admin-global"],
+      "sourcePaths": [
+        "backend/src/middlewares",
+        "ventas/src",
+        "mobile/src"
+      ],
+      "consumers": [
+        "sales-portal",
+        "mobile",
+        "admin-global"
+      ],
       "targetPhase": 3
     }
   ],
@@ -410,49 +695,73 @@
       "severity": "P1",
       "phase": 7,
       "summary": "Communication Service is tested independently but installed by the backend; its package/runtime boundary remains hybrid until the public package contract is explicit.",
-      "sourcePaths": ["backend/package.json", "communication-service/package.json"]
+      "sourcePaths": [
+        "backend/package.json",
+        "communication-service/package.json"
+      ]
     },
     {
       "id": "IOS-NATIVE-ARTIFACT-PENDING",
       "severity": "P2",
       "phase": 3,
       "summary": "The dependency graph contains iOS tooling, but the repository has no mobile/ios native project and CI does not certify an iOS artifact; iOS is not a current release target.",
-      "sourcePaths": ["mobile/package.json", ".github/workflows/ci.yml"]
+      "sourcePaths": [
+        "mobile/package.json",
+        ".github/workflows/ci.yml"
+      ]
     },
     {
       "id": "BACKEND-TEST-CHAIN",
       "severity": "P2",
       "phase": 8,
       "summary": "Backend tests are maintained as one long shell chain instead of stable domain suites.",
-      "sourcePaths": ["backend/package.json"]
+      "sourcePaths": [
+        "backend/package.json"
+      ]
     },
     {
       "id": "MOBILE-VERSION-METADATA",
       "severity": "P2",
       "phase": 3,
       "summary": "mobile/app.json is the compiled runtime version authority while mobile/package.json retains independent package metadata and must not be treated as the release version.",
-      "sourcePaths": ["mobile/app.json", "mobile/package.json"]
+      "sourcePaths": [
+        "mobile/app.json",
+        "mobile/package.json"
+      ]
     },
     {
       "id": "MOBILE-LEGACY-THEME-STORE",
       "severity": "P2",
       "phase": 10,
       "summary": "The active mobile appearance authority is account-scoped, but root-store still retains the old device-global THEME_KEY/setThemeMode path as dead compatibility residue.",
-      "sourcePaths": ["mobile/src/store/root-store.ts", "mobile/src/hooks/use-app-theme.ts", "mobile/src/store/theme-preference.ts"]
+      "sourcePaths": [
+        "mobile/src/store/root-store.ts",
+        "mobile/src/hooks/use-app-theme.ts",
+        "mobile/src/store/theme-preference.ts"
+      ]
     },
     {
       "id": "DOCUMENTATION-SPRAWL",
       "severity": "P2",
       "phase": 10,
       "summary": "Release-candidate and historical reports remain distributed across the repository root and docs without a canonical archive policy.",
-      "sourcePaths": ["docs", "ADM-ARCH-01.md", "RC-PORTAL-UX-HARDENING-20260805.md"]
+      "sourcePaths": [
+        "docs",
+        "ADM-ARCH-01.md",
+        "RC-PORTAL-UX-HARDENING-20260805.md"
+      ]
     },
     {
       "id": "ADMIN-GLOBAL-EXTERNAL-CERTIFICATION",
       "severity": "P0",
       "phase": 9,
       "summary": "Admin Global code is integrated, but DNS, Cloudflare Access, issuer, audience, real MFA and authenticated production certification remain external gates that repository CI alone cannot prove.",
-      "sourcePaths": ["admin-global", "backend/src/modules/platform", "docs/admin-global-private-deployment.md", "docs/render-production-readiness.md"]
+      "sourcePaths": [
+        "admin-global",
+        "backend/src/modules/platform",
+        "docs/admin-global-private-deployment.md",
+        "docs/render-production-readiness.md"
+      ]
     }
   ]
 }

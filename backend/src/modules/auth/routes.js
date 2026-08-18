@@ -8,9 +8,13 @@ const {
   createSessionForRequest,
   revokeAllSessions,
   revokeRefreshToken,
+  revokeSession,
   rotateRefreshToken
 } = require("../../services/sessions");
-const { buildAuthSession } = require("../../utils/jwt");
+const {
+  buildAuthSession,
+  verifyTokenForSessionTeardown
+} = require("../../utils/jwt");
 const { APP_URL, PASSWORD_RESET_PUBLIC_URL } = require("../../config/env");
 const communication = require("../../../modules/communication");
 const logger = require("../../services/logger");
@@ -274,6 +278,25 @@ function buildAuthContextPayload(authContext) {
     productDestination: authContext.productDestination || authContext.destination,
     productRoute: authContext.productRoute || authContext.route
   };
+}
+
+function getLogoutBearerSession(req) {
+  const authorization = String(req.headers.authorization || "").trim();
+  if (!authorization.startsWith("Bearer ")) {
+    return null;
+  }
+
+  try {
+    const payload = verifyTokenForSessionTeardown(
+      authorization.replace("Bearer ", "").trim()
+    );
+    const userId = String(payload?.sub || "").trim();
+    const sessionId = String(payload?.sid || "").trim();
+
+    return userId && sessionId ? { userId, sessionId } : null;
+  } catch {
+    return null;
+  }
 }
 
 async function buildLoginResponse(req, res, user, statusCode = 200, action = "auth.login") {
@@ -667,15 +690,49 @@ router.post("/reset-password", authLimiter, async (req, res, next) => {
 
 router.post("/logout", async (req, res) => {
   const refreshToken = String(req.body?.refreshToken || "").trim();
-  const session = refreshToken ? await revokeRefreshToken(refreshToken, "logout") : null;
+  const pushToken = String(req.body?.pushToken || "").trim();
+  const bearerSession = getLogoutBearerSession(req);
+  let session = null;
+
+  // El bearer firmado identifica exactamente la sesion actual por sub+sid. Se
+  // usa primero porque un /auth/refresh concurrente puede haber rotado el hash
+  // del refreshToken milisegundos antes de que llegue logout.
+  if (bearerSession) {
+    session = await revokeSession(
+      bearerSession.userId,
+      bearerSession.sessionId,
+      "logout"
+    );
+  }
+
+  // Compatibilidad para clientes viejos/sesiones sin sid.
+  if (!session && refreshToken) {
+    session = await revokeRefreshToken(refreshToken, "logout");
+  }
+
+  const logoutUserId = session?.userId || bearerSession?.userId || null;
+  // El fallback push solo puede usar una sesion que acaba de revocarse en esta
+  // llamada. Un bearer viejo sigue pudiendo cerrar su sid exacto una vez, pero
+  // no se transforma en una credencial reutilizable para side effects futuros.
+  if (pushToken && session?.userId) {
+    try {
+      await req.app.locals.store.unregisterPushSubscription(session.userId, pushToken);
+    } catch (pushError) {
+      logger.warn({
+        action: "logout.push_unregister_failed",
+        error: communication.security.sanitizeProviderError(pushError),
+        userId: session.userId
+      });
+    }
+  }
 
   try {
     await recordAuditLog(req, {
-      actorId: session?.userId || null,
+      actorId: logoutUserId,
       organizationId: session?.organizationId || "",
       action: "auth.logout",
       targetType: "session",
-      targetId: session?.id || null,
+      targetId: session?.id || bearerSession?.sessionId || null,
       severity: "info"
     });
   } catch (auditError) {
