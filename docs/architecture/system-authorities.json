@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "d6dd194d431b5264e78dd57e3235c8e30213a48b",
+    "commit": "3a222f666b1b0d8c1009bfd4d8284a740e0ffad1",
     "capturedAt": "2026-08-17",
-    "phase": "post-portal-communication-operational-integration-and-enforced-main-ruleset"
+    "phase": "post-enforced-main-ruleset-and-atomic-subscription-cancellation"
   },
   "products": [
     {
@@ -190,6 +190,8 @@
       "sourcePaths": [
         "backend/src/domain/commercial-payment-transition.js",
         "backend/src/modules/commercial",
+        "backend/src/modules/account/routes.js",
+        "backend/src/data/repositories/payment-repository.js",
         "backend/src/modules/activation-keys",
         "backend/src/services/portal-account.js"
       ],

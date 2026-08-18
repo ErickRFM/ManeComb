@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "d6dd194d431b5264e78dd57e3235c8e30213a48b",
+    "commit": "3a222f666b1b0d8c1009bfd4d8284a740e0ffad1",
     "capturedAt": "2026-08-17"
   },
   "maxBaselineDriftCommits": 5,
