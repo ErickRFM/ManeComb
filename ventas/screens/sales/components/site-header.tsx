@@ -5,10 +5,10 @@ import { webStyle } from '../utils';
 import { ActionButton } from './section-heading';
 
 const navItems = [
-  { label: 'Plataforma', compactLabel: 'Funciones', target: 'funcionalidades' },
-  { label: 'Planes', compactLabel: 'Planes', target: 'planes' },
-  { label: 'App móvil', compactLabel: 'App', target: 'descargar' },
-  { label: 'Confianza', compactLabel: 'Confianza', target: 'confianza' },
+  { label: 'Plataforma', target: 'funcionalidades' },
+  { label: 'Planes', target: 'planes' },
+  { label: 'App móvil', target: 'descargar' },
+  { label: 'Confianza', target: 'confianza' },
 ] as const;
 
 export function SiteHeader({
@@ -36,8 +36,6 @@ export function SiteHeader({
         const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
         return [
           styles.navItem,
-          stacked ? styles.navItemPhone : undefined,
-          stacked ? { minHeight: 44, paddingHorizontal: 8 } : undefined,
           hovered ? styles.navItemHover : undefined,
           webStyle({
             cursor: 'pointer',
@@ -46,9 +44,7 @@ export function SiteHeader({
           }),
         ];
       }}>
-      <Text style={[styles.navItemText, stacked ? styles.navItemTextPhone : undefined]}>
-        {stacked ? item.compactLabel : item.label}
-      </Text>
+      <Text style={styles.navItemText}>{item.label}</Text>
     </Pressable>
   ));
 
@@ -58,7 +54,7 @@ export function SiteHeader({
         styles.headerShell,
         compact ? styles.headerShellCompact : undefined,
         stacked ? styles.headerShellPhone : undefined,
-        stacked ? { minHeight: 88, paddingVertical: 6 } : undefined,
+        stacked ? { minHeight: 68, paddingVertical: 9 } : undefined,
         webStyle({
           backdropFilter: 'blur(22px) saturate(160%)',
           WebkitBackdropFilter: 'blur(22px) saturate(160%)',
@@ -67,24 +63,17 @@ export function SiteHeader({
             : '0 1px 0 rgba(245, 247, 255, 0.08)',
         }),
       ]}>
-      <View style={[styles.headerInner, stacked ? styles.headerInnerPhone : undefined, stacked ? { gap: 4 } : undefined]}>
+      <View style={[styles.headerInner, stacked ? styles.headerInnerPhone : undefined, stacked ? { gap: 0 } : undefined]}>
         <View style={styles.headerTopRow}>
           <BrandLogo size={stacked ? 'sm' : 'md'} align="left" plain />
           {stacked ? (
             <View style={styles.headerActions}>
               <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
-              <ActionButton label="Ver planes" icon="arrow-down" compact onPress={onBuy} />
             </View>
           ) : null}
         </View>
 
-        {stacked ? (
-          <View style={[styles.headerNav, { flex: 0, justifyContent: 'space-between', width: '100%' }]}>
-            {navButtons}
-          </View>
-        ) : (
-          <View style={styles.headerNav}>{navButtons}</View>
-        )}
+        {!stacked ? <View style={styles.headerNav}>{navButtons}</View> : null}
 
         {!stacked ? (
           <View style={styles.headerActions}>
