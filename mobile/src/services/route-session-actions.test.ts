@@ -1,5 +1,8 @@
 import { executeRouteSessionAction } from './route-session-actions';
-import { enqueuePendingSyncOperation } from '@/src/api/offline-cache';
+import {
+  enqueuePendingSyncOperation,
+  patchOfflineCachedActiveRouteSession,
+} from '@/src/api/offline-cache';
 
 const mockStartRouteSessionRequest = jest.fn();
 const mockUpdateRouteSessionStatusRequest = jest.fn();
@@ -11,6 +14,7 @@ jest.mock('@/src/api/client', () => ({
 
 jest.mock('@/src/api/offline-cache', () => ({
   enqueuePendingSyncOperation: jest.fn(),
+  patchOfflineCachedActiveRouteSession: jest.fn(),
 }));
 
 function offlineError(): Error {
@@ -72,6 +76,7 @@ describe('executeRouteSessionAction', () => {
       });
 
       expect(mockStartRouteSessionRequest).toHaveBeenCalledWith('vehicle-1');
+      expect(patchOfflineCachedActiveRouteSession).not.toHaveBeenCalled();
       expect(result).toEqual({
         offline: false,
         session: createdSession,
@@ -79,7 +84,7 @@ describe('executeRouteSessionAction', () => {
       });
     });
 
-    it('creates a pending session and enqueues sync when offline', async () => {
+    it('creates, persists and enqueues a pending session when offline', async () => {
       mockStartRouteSessionRequest.mockRejectedValueOnce(offlineError());
 
       const result = await executeRouteSessionAction({
@@ -88,10 +93,6 @@ describe('executeRouteSessionAction', () => {
         ...defaultParams,
       });
 
-      // `startedAt` viaja con el inicio encolado: al reconciliar, el servidor
-      // debe sellar la jornada con su inicio REAL y no con la hora de reconexion,
-      // o todos los puntos capturados sin Internet caen por debajo del inicio de
-      // sesion y se descartan del historial.
       expect(enqueuePendingSyncOperation).toHaveBeenCalledWith({
         type: 'control:sessionStart',
         payload: { vehicleId: 'vehicle-1', startedAt: expect.any(String) },
@@ -104,6 +105,10 @@ describe('executeRouteSessionAction', () => {
       expect(result.session!.startedAt).toBe(enqueued.payload.startedAt);
       expect(result.session!.status).toBe('RUNNING');
       expect(result.record).toBeNull();
+      expect(patchOfflineCachedActiveRouteSession).toHaveBeenCalledWith(result.session);
+      expect((enqueuePendingSyncOperation as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+        (patchOfflineCachedActiveRouteSession as jest.Mock).mock.invocationCallOrder[0]
+      );
     });
 
     it('re-throws non-offline errors', async () => {
@@ -140,7 +145,7 @@ describe('executeRouteSessionAction', () => {
       });
     });
 
-    it('enqueues pause when offline', async () => {
+    it('enqueues and persists pause when offline', async () => {
       mockUpdateRouteSessionStatusRequest.mockRejectedValueOnce(offlineError());
 
       const result = await executeRouteSessionAction({
@@ -157,6 +162,7 @@ describe('executeRouteSessionAction', () => {
       expect(result.session).toBeDefined();
       expect(result.session!.status).toBe('PAUSED');
       expect(result.record).toBeNull();
+      expect(patchOfflineCachedActiveRouteSession).toHaveBeenCalledWith(result.session);
     });
 
     it('re-throws non-offline errors on pause', async () => {
@@ -193,7 +199,7 @@ describe('executeRouteSessionAction', () => {
       });
     });
 
-    it('enqueues resume when offline', async () => {
+    it('enqueues and persists resume when offline', async () => {
       const pausedSession = { ...activeSession, status: 'PAUSED' as const };
       mockUpdateRouteSessionStatusRequest.mockRejectedValueOnce(offlineError());
 
@@ -209,6 +215,7 @@ describe('executeRouteSessionAction', () => {
       });
       expect(result.offline).toBe(true);
       expect(result.session!.status).toBe('RUNNING');
+      expect(patchOfflineCachedActiveRouteSession).toHaveBeenCalledWith(result.session);
     });
   });
 
@@ -232,7 +239,7 @@ describe('executeRouteSessionAction', () => {
       });
     });
 
-    it('enqueues finish when offline and returns session=null', async () => {
+    it('enqueues finish, clears cached active session and returns session=null when offline', async () => {
       mockUpdateRouteSessionStatusRequest.mockRejectedValueOnce(offlineError());
 
       const result = await executeRouteSessionAction({
@@ -245,6 +252,7 @@ describe('executeRouteSessionAction', () => {
         type: 'control:sessionStatus',
         payload: { sessionId: 'session-1', vehicleId: 'vehicle-1', status: 'FINISHED' },
       });
+      expect(patchOfflineCachedActiveRouteSession).toHaveBeenCalledWith(null);
       expect(result.offline).toBe(true);
       expect(result.session).toBeNull();
       expect(result.record).toBeNull();
@@ -268,6 +276,7 @@ describe('executeRouteSessionAction', () => {
         type: 'control:sessionStatus',
         payload: { sessionId: null, vehicleId: 'vehicle-1', status: 'FINISHED' },
       });
+      expect(patchOfflineCachedActiveRouteSession).toHaveBeenCalledWith(null);
       expect(result.offline).toBe(true);
       expect(result.session).toBeNull();
     });
@@ -298,7 +307,7 @@ describe('executeRouteSessionAction', () => {
   });
 
   describe('offline pending session handling', () => {
-    it('enqueues pending sessionId=null for pause/resume when currentSession is pending', async () => {
+    it('enqueues pending sessionId=null and persists next state for pause/resume', async () => {
       const pendingSession: typeof activeSession & { id: string; status: 'RUNNING' } = {
         ...activeSession,
         id: 'pending:vehicle-1',
@@ -306,11 +315,14 @@ describe('executeRouteSessionAction', () => {
       };
 
       for (const status of ['PAUSED', 'RUNNING'] as const) {
+        jest.clearAllMocks();
         mockUpdateRouteSessionStatusRequest.mockRejectedValueOnce(offlineError());
 
         const result = await executeRouteSessionAction({
           action: status === 'PAUSED' ? 'pause' : 'resume',
-          currentSession: pendingSession,
+          currentSession: status === 'PAUSED'
+            ? pendingSession
+            : { ...pendingSession, status: 'PAUSED' as const },
           ...defaultParams,
         });
 
@@ -319,6 +331,8 @@ describe('executeRouteSessionAction', () => {
           payload: { sessionId: null, vehicleId: 'vehicle-1', status },
         });
         expect(result.offline).toBe(true);
+        expect(result.session?.status).toBe(status);
+        expect(patchOfflineCachedActiveRouteSession).toHaveBeenCalledWith(result.session);
       }
     });
   });
