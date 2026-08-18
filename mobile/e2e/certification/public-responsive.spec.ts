@@ -25,6 +25,7 @@ const routes = [
 
 test.describe('CERT-PROD-01 — responsive público', () => {
   test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await installLocalCertificationContracts(page);
   });
 

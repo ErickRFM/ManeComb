@@ -15,6 +15,8 @@ const callStore = read(ventasRoot, 'features/portal/communication/call-store.ts'
 const chatStore = read(ventasRoot, 'features/portal/communication/communication-store.ts');
 const e2eeStore = read(ventasRoot, 'features/portal/communication/e2ee-store.ts');
 const media = read(ventasRoot, 'features/portal/communication/authenticated-media.tsx');
+const communicationCss = read(ventasRoot, 'features/portal/communication/communication.css');
+const communicationScreen = read(ventasRoot, 'features/portal/screens/portal-communication-screen.tsx');
 const api = read(ventasRoot, 'features/portal/communication/api.ts');
 const headers = read(ventasRoot, 'public/_headers');
 
@@ -62,7 +64,20 @@ assert(e2eeStore.includes('envelope.senderPublicKey'), 'historial cifrado no con
 assert(api.includes('new URL(String(sourceUrl'), 'media privada no valida origen');
 assert(api.includes("responseType: 'blob'"), 'media privada no se descarga autenticada');
 assert(media.includes('URL.revokeObjectURL'), 'object URLs de media no se liberan');
+assert(media.includes('portal-comms-media-loading'), 'media autenticada no conserva un estado de carga estable');
 assert(!api.includes("'Content-Type': 'multipart/form-data'"), 'el browser debe generar el boundary multipart');
+
+assert(communicationCss.includes('grid-template-columns: clamp(292px, 23vw, 340px) minmax(0, 1fr)'), 'la lista de chats volvió a ocupar demasiado ancho en desktop');
+assert(communicationCss.includes('height: clamp(560px, calc(100dvh - 170px), 780px)'), 'el workspace debe acotar su alto al viewport');
+assert(communicationCss.includes('flex: 1 1 auto;\n  flex-direction: column;\n  gap: 7px;\n  overflow-y: auto'), 'el historial debe desplazarse dentro del thread sin empujar header/composer');
+assert(communicationCss.includes('width: fit-content;\n  max-width: min(72%, 560px);\n  align-self: flex-start'), 'las burbujas entrantes deben ajustar su ancho al contenido');
+assert(communicationCss.includes(".portal-comms-message[data-own='true'] {\n  align-self: flex-end"), 'las burbujas propias deben permanecer alineadas a la derecha');
+assert(communicationScreen.includes('title="Comunicación"'), 'la pantalla debe conservar el título semántico real');
+assert(communicationCss.includes("#portal-mobile-top > [aria-label='Volver a ventas']"), 'Comunicación móvil debe ocultar el logo redundante del top bar');
+assert(communicationCss.includes('#portal-header-text {\n    position: absolute;'), 'el título real debe trasladarse visualmente al top bar móvil');
+assert(communicationCss.includes('font-size: 20px !important;\n    line-height: 24px !important;\n    text-align: center !important;'), 'el título móvil debe conservar jerarquía compacta y centrada');
+assert(!communicationCss.includes("content: 'Comunicación'"), 'el título móvil no debe falsificarse con contenido CSS fuera del árbol accesible');
+assert(communicationCss.includes('height: calc(100dvh - 126px);\n    min-height: 0'), 'el thread móvil debe usar el alto dinámico disponible sin un piso que lo recorte');
 
 assert(/Permissions-Policy:.*camera=\(self\).*microphone=\(self\)/.test(headers), 'camera/microphone deben permitirse solo a self');
 assert(/media-src[^\n]*blob:/.test(headers), 'CSP debe permitir media blob local autenticada');

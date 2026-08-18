@@ -214,6 +214,10 @@ const chatRoutes = fs.readFileSync(
   path.resolve(__dirname, "../src/modules/chat/routes.js"),
   "utf8"
 );
+const chatMedia = fs.readFileSync(
+  path.resolve(__dirname, "../src/services/chat-media.js"),
+  "utf8"
+).replace(/\r\n/g, "\n");
 const authRoutes = fs.readFileSync(
   path.resolve(__dirname, "../src/modules/auth/routes.js"),
   "utf8"
@@ -240,6 +244,26 @@ assert.ok(
 assert.ok(
   chatRoutes.includes("canUserAccessChatMedia"),
   "La descarga debe conservar autorizacion por usuario/tenant"
+);
+assert.ok(
+  chatMedia.includes('const { Readable } = require("stream");'),
+  "La multimedia remota debe poder puentearse como stream del backend"
+);
+assert.ok(
+  chatMedia.includes('ensureCloudinary();\n    return {\n      remoteUrl: cloudinary.url'),
+  "La lectura Cloudinary debe configurar credenciales antes de firmar la URL"
+);
+assert.ok(
+  chatMedia.includes('upstream = await fetch(remoteUrl'),
+  "Cloudinary debe descargarse desde backend para no exponer un redirect cross-origin al navegador"
+);
+assert.ok(
+  chatMedia.includes('Readable.fromWeb(upstream.body)'),
+  "El backend debe transmitir la respuesta remota sin cargar el archivo completo en memoria"
+);
+assert.ok(
+  !chatMedia.includes('res.redirect(baseAsset.redirectUrl)'),
+  "La multimedia privada no debe depender de que el navegador siga un redirect a Cloudinary"
 );
 
 console.log("ok - anonymous, authenticated, auth and media traffic use bounded independent rate limit budgets");
