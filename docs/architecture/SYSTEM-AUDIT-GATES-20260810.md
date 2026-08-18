@@ -121,6 +121,8 @@ The semantic authority map was refreshed again against `main@d6dd194d431b5264e78
 
 The map and gate baseline were reviewed through `main@3a222f666b1b0d8c1009bfd4d8284a740e0ffad1` after #217. The intervening delta preserves the existing commercial authority and makes cancellation a single CAS transition: concurrent requests produce one audit/effect, retries remain idempotent, capacity downgrade remains a 409, and onboarding remains a read-only projection rather than billing authority.
 
+The map and gate baseline were reviewed through `main@00b41b777433df2356f5e6ca9a139703b82558f9` after #220 and #219. Activation-key history remains a Portal projection over the existing activation-key authority. OLA 8 preserves primary-operation authority while failing closed when configured distributed rate limiting is unavailable, rebinding push installations to the current identity, and issuing short-lived provider download URLs. The post-merge focused regressions and full PR matrices passed; physical platform evidence remains `ACCEPTED_PENDING`.
+
 **Classification:** audit-integrity P1, resolved.
 
 ### SYS-GATE-003 — PR #97 could be green and still lose or duplicate an alert (resolved)
