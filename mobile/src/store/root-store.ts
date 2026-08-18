@@ -1,4 +1,4 @@
-﻿import * as SecureStore from '@/src/native/secure-store';
+import * as SecureStore from '@/src/native/secure-store';
 import * as Haptics from '@/src/native/haptics';
 import { AppState as NativeAppState, Platform } from 'react-native';
 import {
@@ -690,23 +690,6 @@ function enrichIncidentFromState(state: AppState, incident: Incident): Incident 
     ...incident,
     route,
     vehicle,
-  };
-}
-
-function applyIncidentToMapData(mapData: LiveLocationsData | null, incident: Incident) {
-  if (!mapData) {
-    return mapData;
-  }
-
-  const incidents =
-    incident.status === 'resolved'
-      ? mapData.incidents.filter((entry) => entry.id !== incident.id)
-      : upsertIncident(mapData.incidents, incident);
-
-  return {
-    ...mapData,
-    incidents,
-    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -1589,26 +1572,6 @@ function connectSocket(
     }));
   });
 
-  sessionSocket.on('location:updated', (v: Vehicle) => {
-    if (!isSocketSessionCurrent()) return;
-    const nextVehicle = normalizeVehicle(v);
-    set(s => ({
-      mapData: s.mapData
-        ? {
-            ...s.mapData,
-            vehicles: s.mapData.vehicles.some(ev => ev.id === nextVehicle.id)
-              ? s.mapData.vehicles.map(ev => ev.id === nextVehicle.id
-                  ? timestampMs(ev.locationTimestamp) > timestampMs(nextVehicle.locationTimestamp)
-                    ? ev
-                    : normalizeVehicle({ ...ev, ...nextVehicle })
-                  : ev)
-              : [...s.mapData.vehicles, nextVehicle],
-            updatedAt: new Date().toISOString(),
-          }
-        : s.mapData,
-    }));
-  });
-
   // Snapshot canonico completo. Se reemplaza la unidad entera: nunca se hace
   // merge parcial, porque un merge reintroduce campos de origen distinto.
   sessionSocket.on('operational-unit:updated', (payload: unknown) => {
@@ -1754,7 +1717,6 @@ function connectSocket(
       const incident = enrichIncidentFromState(s, i);
       return {
         incidents: upsertIncident(s.incidents, incident),
-        mapData: applyIncidentToMapData(s.mapData, incident),
         resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
       };
     });
@@ -1765,7 +1727,6 @@ function connectSocket(
       const incident = enrichIncidentFromState(s, i);
       return {
         incidents: upsertIncident(s.incidents, incident),
-        mapData: applyIncidentToMapData(s.mapData, incident),
         resources: { ...s.resources, incidents: applyIncrementalResourceEvent(s.resources.incidents, { hasDataAfterMutation: true }) },
       };
     });
@@ -2750,18 +2711,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (data.operationalUnits) {
         data.operationalUnits = mergeOperationalUnitsByFreshness(get().operationalUnits, data.operationalUnits);
       }
-      if (data.mapData?.vehicles) {
-        const liveById = new Map((get().mapData?.vehicles || []).map(vehicle => [vehicle.id, vehicle]));
-        data.mapData = {
-          ...data.mapData,
-          vehicles: data.mapData.vehicles.map((vehicle: Vehicle) => {
-            const existing = liveById.get(vehicle.id);
-            return existing && timestampMs(existing.locationTimestamp) > timestampMs(vehicle.locationTimestamp)
-              ? existing
-              : vehicle;
-          }),
-        };
-      }
       set({ ...data, isRefreshing: false, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       persistOfflineSnapshot(get);
       connectSocket(set, get);
@@ -2949,7 +2898,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         const incident = enrichIncidentFromState(s, i);
         return {
           incidents: upsertIncident(s.incidents, incident),
-          mapData: applyIncidentToMapData(s.mapData, incident),
         };
       });
       return true;
@@ -3418,7 +3366,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         const incident = enrichIncidentFromState(s, i);
         return {
           incidents: upsertIncident(s.incidents, incident),
-          mapData: applyIncidentToMapData(s.mapData, incident),
         };
       });
     } catch (error) {
