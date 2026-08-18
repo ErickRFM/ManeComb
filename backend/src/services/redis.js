@@ -28,6 +28,30 @@ async function connectRedis() {
     redisClient = createClient({
       url: REDIS_URL
     });
+    redisClient.on("ready", () => {
+      redisStatus = {
+        enabled: true,
+        ready: true,
+        mode: "redis",
+        message: "Redis conectado"
+      };
+    });
+    redisClient.on("reconnecting", () => {
+      redisStatus = {
+        enabled: true,
+        ready: false,
+        mode: "reconnecting",
+        message: "Redis reconectando"
+      };
+    });
+    redisClient.on("end", () => {
+      redisStatus = {
+        enabled: true,
+        ready: false,
+        mode: "disconnected",
+        message: "Redis desconectado"
+      };
+    });
     redisClient.on("error", (error) => {
       redisStatus = {
         enabled: true,

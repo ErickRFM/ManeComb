@@ -119,6 +119,8 @@ The initial audit found a stale authority baseline and no freshness enforcement.
 
 The semantic authority map was refreshed again against `main@d6dd194d431b5264e78dd57e3235c8e30213a48b` after the final Portal, communication and operational integration. The repository-governance P1 was removed only after GitHub independently reported `main.protected=true` and returned the required rules.
 
+The map and gate baseline were reviewed through `main@3a222f666b1b0d8c1009bfd4d8284a740e0ffad1` after #217. The intervening delta preserves the existing commercial authority and makes cancellation a single CAS transition: concurrent requests produce one audit/effect, retries remain idempotent, capacity downgrade remains a 409, and onboarding remains a read-only projection rather than billing authority.
+
 **Classification:** audit-integrity P1, resolved.
 
 ### SYS-GATE-003 — PR #97 could be green and still lose or duplicate an alert (resolved)
