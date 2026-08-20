@@ -155,7 +155,7 @@ body:has(#operations-map-surface) #operations-kpi-grid {
 
 /* Móvil: el mapa ocupa prácticamente toda la ventana útil. Las unidades se
    convierten en bottom-sheet y los cuatro estados operativos principales viven
-   como dock inferior compacto sobre el propio mapa. */
+   como dock inferior 2x2: más legible que cuatro columnas estrechas. */
 @media (max-width: 767px) {
   body:has(#operations-map-surface) #portal-content {
     gap: 0 !important;
@@ -209,9 +209,9 @@ body:has(#operations-map-surface) #operations-kpi-grid {
   /* Bottom sheet de unidades. Colapsado muestra solo el encabezado; expandido
      crece hacia arriba sin sacar al usuario del mapa. */
   body:has(#operations-map-surface) #operations-unit-selector {
-    bottom: 86px !important;
+    bottom: 164px !important;
     left: 12px !important;
-    max-height: 44svh !important;
+    max-height: 40svh !important;
     overflow: auto !important;
     right: 12px !important;
     top: auto !important;
@@ -228,15 +228,15 @@ body:has(#operations-map-surface) #operations-kpi-grid {
     line-height: 18px !important;
   }
 
-  /* KPI dock: cuatro estados accionables en una sola franja. Productividad y
-     distancia permanecen en desktop/historial, donde sí tienen espacio útil. */
+  /* KPI dock: cuatro estados accionables en 2x2. Productividad y distancia
+     permanecen en desktop/historial, donde sí tienen espacio útil. */
   body:has(#operations-map-surface) #operations-kpi-grid {
     border: 1px solid rgba(148, 163, 184, 0.14) !important;
     border-radius: 14px !important;
     bottom: 12px !important;
     left: 12px !important;
     overflow: hidden !important;
-    padding: 0 !important;
+    padding: 6px !important;
     position: absolute !important;
     right: 12px !important;
     z-index: 40 !important;
@@ -244,7 +244,8 @@ body:has(#operations-map-surface) #operations-kpi-grid {
 
   body:has(#operations-map-surface) #operations-kpi-grid > div {
     display: grid !important;
-    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     min-width: 0 !important;
     width: 100% !important;
   }
@@ -254,17 +255,14 @@ body:has(#operations-map-surface) #operations-kpi-grid {
   }
 
   body:has(#operations-map-surface) #operations-kpi-grid > div > * {
-    border-bottom-width: 0 !important;
-    border-right: 1px solid rgba(148, 163, 184, 0.1) !important;
+    background: rgba(12, 22, 38, 0.82) !important;
+    border: 1px solid rgba(148, 163, 184, 0.11) !important;
+    border-radius: 10px !important;
     flex-basis: auto !important;
-    gap: 1px !important;
+    gap: 2px !important;
     min-height: 62px !important;
     min-width: 0 !important;
-    padding: 7px 6px !important;
-  }
-
-  body:has(#operations-map-surface) #operations-kpi-grid > div > :nth-child(4) {
-    border-right-width: 0 !important;
+    padding: 7px 9px !important;
   }
 
   body:has(#operations-map-surface) #operations-kpi-grid [class*="kpiTop"] {
@@ -272,17 +270,18 @@ body:has(#operations-map-surface) #operations-kpi-grid {
   }
 
   body:has(#operations-map-surface) #operations-kpi-grid [class*="kpiLabel"] {
-    font-size: 9px !important;
-    line-height: 11px !important;
+    font-size: 10px !important;
+    line-height: 12px !important;
   }
 
   body:has(#operations-map-surface) #operations-kpi-grid [class*="kpiValue"] {
-    font-size: 17px !important;
-    line-height: 19px !important;
+    font-size: 18px !important;
+    line-height: 20px !important;
   }
 
   body:has(#operations-map-surface) #operations-kpi-grid [class*="kpiDetail"] {
-    display: none !important;
+    font-size: 9px !important;
+    line-height: 11px !important;
   }
 }
 
@@ -304,7 +303,7 @@ body:has(#operations-map-surface) #operations-kpi-grid {
   }
 
   body:has(#operations-map-surface) #operations-unit-selector {
-    bottom: 80px !important;
+    bottom: 158px !important;
     left: 8px !important;
     right: 8px !important;
   }
