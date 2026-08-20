@@ -64,9 +64,11 @@ assert.match(salesScreen, /onBuy=\{\(\) => scrollToSection\('planes'\)\}/);
 assert.doesNotMatch(salesScreen, /badge\.toLowerCase\(\)\.includes\('vendido'\)/);
 assert.match(salesScreen, /plans\.findIndex\(\(plan\) => isPublicDemoPlan\(plan\)\)/);
 
-// UX-04: navegación móvil comparte estado de sesión y las secciones funcionan también en native.
+// UX-04: la cabecera móvil conserva sesión sin segunda fila redundante; las secciones siguen funcionando en native.
 assert.match(siteHeader, /<ActionButton label=\{loginLabel\} icon="login" variant="ghost" compact onPress=\{onLogin\} \/>/);
-assert.match(siteHeader, /minHeight: 44/);
+assert.match(siteHeader, /stacked \? \{ minHeight: 68, paddingVertical: 9 \} : undefined/);
+assert.match(siteHeader, /\{!stacked \? <View style=\{styles\.headerNav\}>\{navButtons\}<\/View> : null\}/);
+assert.doesNotMatch(siteHeader, /stacked \? \(\s*<View style=\{\[styles\.headerNav/);
 assert.match(salesScreen, /nativeSectionOffsets/);
 assert.match(salesScreen, /pageRef\.current\?\.scrollTo/);
 assert.match(salesScreen, /registerNativeSection\('descargar'\)/);
