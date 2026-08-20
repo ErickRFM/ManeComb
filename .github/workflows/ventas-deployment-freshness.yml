@@ -1,0 +1,55 @@
+name: Ventas deployment freshness
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "ventas/**"
+      - ".github/workflows/ventas-deployment-freshness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ventas-deployment-freshness-main
+  cancel-in-progress: true
+
+jobs:
+  deployed-main:
+    name: Verify manecomb.com serves current main
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Wait for Cloudflare Pages to publish the exact commit
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          echo "Expected Ventas commit: ${EXPECTED_COMMIT}"
+
+          for attempt in $(seq 1 24); do
+            body="$(curl --fail --silent --show-error --max-time 15 \
+              -H 'Cache-Control: no-cache' \
+              "https://manecomb.com/build-meta.json?deployment_probe=${EXPECTED_COMMIT}-${attempt}" || true)"
+
+            if printf '%s' "$body" | grep -Fq "\"commit\": \"${EXPECTED_COMMIT}\""; then
+              echo "manecomb.com is serving Ventas commit ${EXPECTED_COMMIT}."
+              exit 0
+            fi
+
+            deployed="$(printf '%s' "$body" | sed -n 's/.*\"commit\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p' | head -n 1)"
+            if [ -n "$deployed" ]; then
+              echo "Attempt ${attempt}/24: deployed=${deployed}; waiting for ${EXPECTED_COMMIT}."
+            else
+              echo "Attempt ${attempt}/24: build-meta.json unavailable or invalid; waiting for ${EXPECTED_COMMIT}."
+            fi
+
+            sleep 30
+          done
+
+          echo "::error::Cloudflare Pages did not publish Ventas commit ${EXPECTED_COMMIT} to manecomb.com within 12 minutes. Check the Pages Git integration, production branch and custom-domain deployment."
+          exit 1
