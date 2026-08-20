@@ -1,0 +1,4 @@
+ManeComb Ventas production deploy refresh
+Reason: force Cloudflare Pages to rebuild current main after the mobile Operations UI fix.
+Requested: 2026-08-20T22:13:00Z
+Base main: fd8528956d613411abbe0deed01e9a9f7e8726e4
