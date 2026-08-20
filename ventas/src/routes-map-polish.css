@@ -189,3 +189,62 @@ body:has(#portal-content-scroll) #portal-header-actions {
     padding-bottom: 24px !important;
   }
 }
+
+/* Centro de Operaciones en teléfono.
+   React Native Web renderiza accessibilityRole="header" como role="heading",
+   no necesariamente como <h1>; por eso el ajuste móvil anterior no alcanzaba
+   este título y seguía viéndose demasiado grande. Además, el target táctil
+   global de 44px deformaba checkpoints de 28px a un óvalo 28x44. */
+@media (max-width: 767px) {
+  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) {
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    gap: 10px !important;
+    margin-bottom: 0 !important;
+  }
+
+  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) #portal-header-text {
+    flex: 1 1 auto !important;
+    flex-basis: auto !important;
+  }
+
+  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) [role="heading"] {
+    font-size: 22px !important;
+    letter-spacing: -0.02em;
+    line-height: 27px !important;
+  }
+
+  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) #portal-header-actions {
+    align-self: center !important;
+    flex: 0 0 auto !important;
+    padding-top: 0 !important;
+    width: auto !important;
+  }
+
+  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) #operations-header-action {
+    flex: 0 0 auto !important;
+  }
+
+  /* Visual compacto (36px) + 4px transparentes por lado = área de interacción
+     efectiva cercana a 44px sin volver a estirar el círculo. */
+  .operations-map-marker--circle {
+    height: 36px !important;
+    min-height: 36px !important;
+    min-width: 36px !important;
+    width: 36px !important;
+  }
+
+  .operations-map-marker--circle::before {
+    border-radius: 50%;
+    content: "";
+    inset: -4px;
+    position: absolute;
+  }
+}
+
+@media (max-width: 479px) {
+  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) [role="heading"] {
+    font-size: 21px !important;
+    line-height: 25px !important;
+  }
+}
