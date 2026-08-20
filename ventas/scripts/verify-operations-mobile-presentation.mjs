@@ -75,13 +75,13 @@ requireText(
 );
 requireText(
   operationsPolish,
-  'bottom: 86px !important;',
-  'El selector de unidades móvil debe funcionar como bottom-sheet sobre el dock.'
+  'bottom: 164px !important;',
+  'El selector de unidades móvil debe quedar por encima del dock KPI 2x2.'
 );
 requireText(
   operationsPolish,
-  'grid-template-columns: repeat(4, minmax(0, 1fr)) !important;',
-  'Los cuatro KPIs principales deben formar un dock compacto en móvil.'
+  'grid-template-columns: repeat(2, minmax(0, 1fr)) !important;',
+  'Los cuatro KPIs principales deben formar una grilla 2x2 legible en móvil.'
 );
 requireText(
   operationsPolish,
@@ -114,4 +114,4 @@ requireText(
   'Los markers deben conservar pseudoárea táctil sin deformar su visual.'
 );
 
-console.log('ok - Centro de Operaciones usa map-first, bottom-sheet, KPI dock y markers no deformados');
+console.log('ok - Centro de Operaciones usa map-first, bottom-sheet, KPI 2x2 y markers no deformados');
