@@ -194,7 +194,7 @@ body:has(#portal-content-scroll) #portal-header-actions {
    React Native Web renderiza accessibilityRole="header" como role="heading",
    no necesariamente como <h1>; por eso el ajuste móvil anterior no alcanzaba
    este título y seguía viéndose demasiado grande. Además, el target táctil
-   global de 44px deformaba checkpoints de 28px a un óvalo 28x44. */
+   global de 44px deformaba los botones de marcador del mapa. */
 @media (max-width: 767px) {
   body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) {
     align-items: center !important;
@@ -208,7 +208,7 @@ body:has(#portal-content-scroll) #portal-header-actions {
     flex-basis: auto !important;
   }
 
-  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) [role="heading"] {
+  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) #portal-header-text > :is([role="heading"], h1) {
     font-size: 22px !important;
     letter-spacing: -0.02em;
     line-height: 27px !important;
@@ -225,17 +225,23 @@ body:has(#portal-content-scroll) #portal-header-actions {
     flex: 0 0 auto !important;
   }
 
-  /* Visual compacto (36px) + 4px transparentes por lado = área de interacción
-     efectiva cercana a 44px sin volver a estirar el círculo. */
-  .operations-map-marker--circle {
+  /* Se limita al mapa de Operaciones: Rutas, editor y replay conservan su propia
+     geometría. El marcador visible queda compacto y la pseudoárea transparente
+     mantiene aproximadamente 44px de interacción sin volverlo ovalado. */
+  #operations-map-surface .operations-map-marker--circle {
     height: 36px !important;
     min-height: 36px !important;
     min-width: 36px !important;
     width: 36px !important;
   }
 
-  .operations-map-marker--circle::before {
-    border-radius: 50%;
+  #operations-map-surface .operations-map-marker--pill {
+    height: 36px !important;
+    min-height: 36px !important;
+  }
+
+  #operations-map-surface .operations-map-marker::before {
+    border-radius: inherit;
     content: "";
     inset: -4px;
     position: absolute;
@@ -243,7 +249,7 @@ body:has(#portal-content-scroll) #portal-header-actions {
 }
 
 @media (max-width: 479px) {
-  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) [role="heading"] {
+  body:has(#portal-content-scroll) #portal-header:has(#operations-header-action) #portal-header-text > :is([role="heading"], h1) {
     font-size: 21px !important;
     line-height: 25px !important;
   }
