@@ -1,0 +1,3 @@
+ManeComb Portal Operations map-first UX refresh
+Requested: 2026-08-20T23:42:00Z
+Scope: presentation only; map canvas, mobile bottom-sheet, compact KPI dock, desktop full-canvas.
