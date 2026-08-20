@@ -1,6 +1,7 @@
 import './global.css';
 import './portal-polish.css';
 import './routes-map-polish.css';
+import './operations-mobile-polish.css';
 
 import { createRoot } from 'react-dom/client';
 import { App } from './App';

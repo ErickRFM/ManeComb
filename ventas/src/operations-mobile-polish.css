@@ -1,0 +1,133 @@
+/*
+ * Centro de Operaciones — cierre visual móvil.
+ *
+ * Este archivo se importa al final de los estilos del portal para que las
+ * correcciones específicas de Operaciones no dependan de la cascada genérica
+ * del shell ni contaminen Rutas, replay u otros mapas.
+ */
+
+@media (max-width: 767px) {
+  /* El glow decorativo del shell se percibía como una mancha vino enorme detrás
+     del header. En Operaciones el contenido usa una superficie opaca y limpia. */
+  body:has(#operations-map-surface) #portal-content-scroll,
+  body:has(#operations-map-surface) #portal-content {
+    background: #080d16 !important;
+  }
+
+  body:has(#operations-map-surface) #portal-content {
+    gap: 10px !important;
+    padding: 10px 12px 20px !important;
+  }
+
+  /* Header de una sola fila: título compacto + refresco manual. */
+  body:has(#operations-map-surface) #portal-header {
+    align-items: center !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 40px !important;
+    gap: 8px !important;
+    margin: 0 !important;
+    min-height: 40px !important;
+  }
+
+  body:has(#operations-map-surface) #portal-header-text {
+    flex-basis: auto !important;
+    min-width: 0 !important;
+  }
+
+  body:has(#operations-map-surface) #portal-header-text > :is([role="heading"], h1) {
+    font-size: 21px !important;
+    letter-spacing: -0.025em !important;
+    line-height: 25px !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+  }
+
+  body:has(#operations-map-surface) #portal-header-actions {
+    align-items: center !important;
+    align-self: center !important;
+    display: flex !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    width: 40px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-header-action {
+    align-items: center !important;
+    display: flex !important;
+    flex: 0 0 40px !important;
+    height: 40px !important;
+    justify-content: center !important;
+    width: 40px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-header-action > [role="button"],
+  body:has(#operations-map-surface) #operations-header-action > button {
+    border-radius: 12px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    min-width: 40px !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    width: 40px !important;
+  }
+
+  /* El mapa sube al compactar el header y conserva una altura útil real. */
+  body:has(#operations-map-surface) #operations-map-surface {
+    border-radius: 16px !important;
+    height: max(440px, 60svh) !important;
+    margin-top: 0 !important;
+    min-height: 440px !important;
+  }
+
+  /* El target táctil global del portal es 44px. Los markers de Mapbox son
+     botones y heredaban ese min-height, por eso el checkpoint terminaba ovalado.
+     Aquí la geometría visible queda explícita y cuadrada. */
+  body:has(#operations-map-surface) #operations-map-surface .operations-map-marker--circle {
+    box-sizing: border-box !important;
+    height: 36px !important;
+    max-height: 36px !important;
+    max-width: 36px !important;
+    min-height: 36px !important;
+    min-width: 36px !important;
+    padding: 0 !important;
+    width: 36px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-map-surface .operations-map-marker--pill {
+    box-sizing: border-box !important;
+    height: 34px !important;
+    max-height: 34px !important;
+    min-height: 34px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-map-surface .operations-map-marker::before {
+    border-radius: inherit;
+    content: "";
+    inset: -4px;
+    position: absolute;
+  }
+
+  /* Panel flotante más ligero para dejar respirar el mapa. */
+  body:has(#operations-map-surface) #operations-unit-selector {
+    backdrop-filter: blur(16px) saturate(1.06);
+    background: rgba(7, 14, 27, 0.94) !important;
+    border-color: rgba(148, 163, 184, 0.16) !important;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32) !important;
+  }
+}
+
+@media (max-width: 479px) {
+  body:has(#operations-map-surface) #portal-content {
+    padding: 9px 10px 18px !important;
+  }
+
+  body:has(#operations-map-surface) #portal-header-text > :is([role="heading"], h1) {
+    font-size: 20px !important;
+    line-height: 24px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-map-surface {
+    height: max(430px, 58svh) !important;
+    min-height: 430px !important;
+  }
+}
