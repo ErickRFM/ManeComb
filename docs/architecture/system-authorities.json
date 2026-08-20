@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "110ae1d11c63b933be1cd5f5d3de1346b62e8f91",
-    "capturedAt": "2026-08-18",
-    "phase": "post-portal-media-offline-and-mobile-session-lifecycle-reconciliation"
+    "commit": "fd8528956d613411abbe0deed01e9a9f7e8726e4",
+    "capturedAt": "2026-08-20",
+    "phase": "post-mobile-session-reconciliation-and-portal-operations-presentation"
   },
   "products": [
     {
