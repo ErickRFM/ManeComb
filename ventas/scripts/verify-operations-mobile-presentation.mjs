@@ -17,20 +17,28 @@ const requireText = (source, text, message) => {
 requireText(
   dashboard,
   'nativeID="operations-header-action"',
-  'Falta el hook operations-header-action requerido por el header móvil de Operaciones.'
+  'Falta el hook operations-header-action requerido para conservar Refresh en Operaciones.'
 );
 requireText(
   dashboard,
   'nativeID="operations-map-surface"',
-  'Falta el hook operations-map-surface requerido para acotar el polish de Operaciones.'
+  'Falta el hook operations-map-surface requerido para acotar el workspace map-first.'
+);
+requireText(
+  dashboard,
+  'nativeID="operations-unit-selector"',
+  'Falta el selector de unidades usado como bottom-sheet móvil.'
+);
+requireText(
+  dashboard,
+  'nativeID="operations-kpi-grid"',
+  'Falta el dock de KPIs operativos.'
 );
 
-// El target táctil global del portal debe seguir existiendo para accesibilidad;
-// Operaciones lo neutraliza únicamente en la geometría visual de sus markers.
+// El target táctil global permanece; Operaciones controla únicamente la forma
+// visual de los markers para no volver a producir óvalos.
 requireText(globalCss, 'min-height: 44px;', 'El contrato asume el target táctil móvil global de 44px.');
 
-// Este archivo debe cargar al final para tener la última palabra frente a los
-// estilos genéricos de global.css y routes-map-polish.css.
 requireText(
   main,
   "import './operations-mobile-polish.css';",
@@ -42,28 +50,43 @@ if (main.indexOf("import './operations-mobile-polish.css';") < main.indexOf("imp
 
 requireText(
   operationsPolish,
-  'body:has(#operations-map-surface) #portal-content-scroll',
-  'Operaciones debe cubrir el glow del shell con una superficie móvil propia.'
+  'body:has(#operations-map-surface) #portal-header-text',
+  'El map-first debe retirar el título visual de Centro de Operaciones.'
 );
 requireText(
   operationsPolish,
-  'grid-template-columns: minmax(0, 1fr) 40px !important;',
-  'El header móvil de Operaciones debe conservar título + refresh en una sola fila.'
-);
-requireText(
-  operationsPolish,
-  '#portal-header-text > :is([role="heading"], h1)',
-  'El título móvil debe cubrir role=heading y h1 de forma explícita.'
-);
-requireText(
-  operationsPolish,
-  'font-size: 21px !important;',
-  'El título de Operaciones debe conservar escala compacta en móvil.'
+  'display: none !important;',
+  'El título visual de Operaciones debe ocultarse para liberar altura útil.'
 );
 requireText(
   operationsPolish,
   '#operations-header-action > [role="button"]',
-  'El refresh debe tener geometría compacta y estable.'
+  'Refresh debe conservar una geometría compacta sobre el mapa.'
+);
+requireText(
+  operationsPolish,
+  'height: calc(100svh - 86px) !important;',
+  'El mapa móvil debe ocupar prácticamente toda la ventana útil.'
+);
+requireText(
+  operationsPolish,
+  '#operations-unit-selector',
+  'Las unidades deben seguir disponibles como superficie flotante.'
+);
+requireText(
+  operationsPolish,
+  'bottom: 164px !important;',
+  'El selector de unidades móvil debe quedar por encima del dock KPI 2x2.'
+);
+requireText(
+  operationsPolish,
+  'grid-template-columns: repeat(2, minmax(0, 1fr)) !important;',
+  'Los cuatro KPIs principales deben formar una grilla 2x2 legible en móvil.'
+);
+requireText(
+  operationsPolish,
+  '#operations-kpi-grid > div > :nth-child(n + 5)',
+  'Los KPIs secundarios deben reservarse para superficies con más espacio.'
 );
 
 const circleRule = operationsPolish.match(/\.operations-map-marker--circle\s*\{([\s\S]*?)\}/)?.[1] || '';
@@ -83,7 +106,7 @@ for (const declaration of [
 requireText(
   operationsPolish,
   '#operations-map-surface .operations-map-marker--pill',
-  'El marcador de unidad móvil debe quedar acotado al mapa de Operaciones.'
+  'El marcador de unidad debe permanecer acotado al mapa de Operaciones.'
 );
 requireText(
   operationsPolish,
@@ -91,4 +114,4 @@ requireText(
   'Los markers deben conservar pseudoárea táctil sin deformar su visual.'
 );
 
-console.log('ok - Centro de Operaciones conserva fondo limpio, header compacto y markers no deformados');
+console.log('ok - Centro de Operaciones usa map-first, bottom-sheet, KPI 2x2 y markers no deformados');
