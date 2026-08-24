@@ -89,11 +89,21 @@ for (const [packageName, expectedVersion] of EXPECTED_VULNERABLE_VERSIONS) {
   }
 }
 
-const audit = spawnSync(
-  process.platform === 'win32' ? 'npm.cmd' : 'npm',
-  ['audit', '--omit=dev', '--json'],
-  { cwd: process.cwd(), encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 }
-);
+const auditInvocation = process.platform === 'win32'
+  ? {
+      command: process.env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', 'npm.cmd audit --omit=dev --json'],
+    }
+  : {
+      command: 'npm',
+      args: ['audit', '--omit=dev', '--json'],
+    };
+
+const audit = spawnSync(auditInvocation.command, auditInvocation.args, {
+  cwd: process.cwd(),
+  encoding: 'utf8',
+  maxBuffer: 20 * 1024 * 1024,
+});
 
 if (audit.error) {
   fail(`npm audit could not run: ${audit.error.message}`);

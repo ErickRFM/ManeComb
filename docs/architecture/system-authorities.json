@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "fd8528956d613411abbe0deed01e9a9f7e8726e4",
-    "capturedAt": "2026-08-20",
-    "phase": "post-mobile-session-reconciliation-and-portal-operations-presentation"
+    "commit": "f092fc3df900b94d49b6032400d5ef2ac9a1752c",
+    "capturedAt": "2026-08-24",
+    "phase": "pre-physical-certification-freeze"
   },
   "products": [
     {
@@ -228,11 +228,12 @@
       "id": "capabilities",
       "decision": "Which actions an actor may execute after authentication",
       "owner": "backend",
-      "status": "partial",
+      "status": "canonical",
       "sourcePaths": [
         "backend/src/services/enterprise-capabilities.js",
         "backend/src/middlewares",
         "ventas/features/portal/utils/access.ts",
+        "mobile/src/utils/mobile-authority.ts",
         "admin-global/src/features/platform"
       ],
       "consumers": [
@@ -240,6 +241,7 @@
         "mobile",
         "admin-global"
       ],
+      "compatibilityNote": "The backend emits the explicit capability set and enforces it on protected routes. Portal and Mobile consume that set before any role-based fallback; the remaining role tables are limited to sessions issued before the capability contract. Admin Global consumes the separate Platform capability response owned by backend Platform RBAC.",
       "targetPhase": 2
     },
     {
@@ -380,6 +382,9 @@
         "sales-portal",
         "mobile"
       ],
+      "remainingWork": "Retire the legacy /navigation route-session mutation path and pending:* offline compatibility once every active journey is created and transitioned through /journeys and no persisted legacy session requires reconciliation.",
+      "prePhysicalImpact": "The transition is intentional and non-blocking for device testing: backend journey transitions remain authoritative, legacy mutations are tenant-bound and concurrency-checked, and offline actions reconcile through the same backend session authority.",
+      "closureCondition": "All Mobile and Portal consumers use the journey transition contract, production contains no unreconciled legacy route sessions, and the legacy navigation mutation endpoints can be removed with their compatibility tests.",
       "targetPhase": 6
     },
     {
@@ -467,6 +472,9 @@
         "mobile",
         "sales-portal"
       ],
+      "remainingWork": "Unify provider-delivery events from communication-service with the realtime Chat/Radio/RTC event and acknowledgement catalog currently shared across backend sockets and shared/communication.",
+      "prePhysicalImpact": "This shared boundary does not block physical testing: communication-service is installed and exercised inside the backend image, while call cleanup/state and browser/mobile payload contracts are versioned in shared/communication and covered by backend, Mobile, Portal and standalone package tests.",
+      "closureCondition": "A single versioned event catalog owns names, payload schemas, acknowledgement/retry semantics and provider delivery events, and every backend, Mobile and Portal emitter/consumer imports that catalog through a documented package boundary.",
       "targetPhase": 7
     },
     {
@@ -538,6 +546,9 @@
         "admin-global",
         "backend"
       ],
+      "remainingWork": "Capture authenticated production evidence for Access plus Platform session plus MFA, confirm the first production platform_owner, and exercise TOTP recovery, refresh, expiry, revocation and Platform RBAC with production persistence.",
+      "prePhysicalImpact": "DNS, both Access applications, Render fail-closed enforcement and CORS are externally observable, but unauthenticated inspection cannot certify the Platform account or real MFA. This does not block Mobile/Portal device testing, but it remains a release gate for Admin Global.",
+      "closureCondition": "Sanitized evidence shows 403 without Access, 401 with Access but without Platform authentication, 200 with Access plus Platform plus MFA, a production platform_owner, and the complete authenticated Admin Global matrix.",
       "targetPhase": 9
     },
     {
@@ -686,6 +697,9 @@
         "mobile",
         "admin-global"
       ],
+      "remainingWork": "Replace route-specific error payloads and client-specific parsing with one versioned API error contract carrying stable code, safe message, traceId, retry/recoverability metadata and HTTP status semantics; Admin Global must preserve those fields instead of collapsing them to Error(message).",
+      "prePhysicalImpact": "The partial contract is non-blocking for the pre-physical build because central containment and trace IDs are active, critical authentication/session and rate-limit failures have explicit tested policies, and remaining divergence affects diagnostic consistency rather than authorization or data ownership.",
+      "closureCondition": "All backend routes emit the shared error envelope and Mobile, Portal and Admin Global consume its code, traceId and recoverability fields without ad hoc status/message reinterpretation.",
       "targetPhase": 3
     }
   ],
@@ -755,7 +769,7 @@
       "id": "ADMIN-GLOBAL-EXTERNAL-CERTIFICATION",
       "severity": "P0",
       "phase": 9,
-      "summary": "Admin Global code is integrated, but DNS, Cloudflare Access, issuer, audience, real MFA and authenticated production certification remain external gates that repository CI alone cannot prove.",
+      "summary": "Admin Global code is integrated; DNS and both Cloudflare Access perimeters are externally reachable, Render rejects Platform traffic without Access, and CORS accepts the private Admin origin. Real Platform authentication, the production platform_owner, MFA lifecycle and authenticated production certification remain external P0 release gates that repository CI and unauthenticated probes cannot prove.",
       "sourcePaths": [
         "admin-global",
         "backend/src/modules/platform",
