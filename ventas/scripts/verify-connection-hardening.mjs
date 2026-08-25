@@ -55,6 +55,12 @@ assert.ok(!guard.includes('REALTIME_STALL_RECONCILE_MS'), 'no debe volver el wat
 assert.ok(!guard.includes('operationalUnits'), 'la salud del socket no debe depender de que cambie la flota');
 assert.ok(!guard.includes("reconcile('token')"), 'rotar JWT no debe forzar una recarga completa del Portal');
 
+const client = read('src/api/client.ts');
+assert.ok(client.includes('isAuthoritativeSessionError'), 'el facade HTTP debe exponer autoridad de sesion');
+assert.ok(client.includes('shouldExpirePortalSession'), 'el logout debe depender de una señal autenticadora concluyente');
+assert.ok(client.includes("status === 403 && url.includes('/auth/refresh')"), 'un 403 funcional no debe convertirse en logout');
+assert.ok(client.includes('onSessionExpired: async () => undefined'), 'la capa base no debe destruir sesion sin clasificar la causa');
+
 const store = read('src/store/use-app-store.ts');
 assert.ok(
   store.includes('socket.auth = { token: session.token };'),
@@ -67,6 +73,26 @@ assert.ok(
 assert.ok(
   store.includes('if (socket && refreshedState.user)'),
   'la sincronizacion JWT debe reutilizar el socket existente y tolerar que aun no exista'
+);
+assert.ok(
+  store.includes('if (!token && !refreshToken)'),
+  'un refresh persistido debe poder recuperar un arranque aunque falte el access token'
+);
+assert.ok(
+  store.includes('const activeToken = refreshedState.token || token;'),
+  'bootstrap no debe sobrescribir un access token rotado por el interceptor'
+);
+assert.ok(
+  store.includes('const activeRefreshToken = refreshedState.refreshToken || refreshToken;'),
+  'bootstrap no debe sobrescribir un refresh token rotado por el interceptor'
+);
+assert.ok(
+  store.includes('if (isAuthoritativeSessionError(error))'),
+  'solo una falla autenticadora autoritativa debe limpiar la sesion durante bootstrap'
+);
+assert.ok(
+  store.includes('Red, timeout, 429 y 5xx no son autoridad para destruir credenciales.'),
+  'el contrato debe conservar credenciales frente a fallos transitorios'
 );
 
 const plansCache = read('features/commercial/services/plans-cache.ts');
