@@ -146,14 +146,46 @@ async function run() {
     );
     assert.equal(pushRegistered.status, 201);
 
+    const refreshRequestId = "account-security-refresh-replay-01";
     const rotated = await requestJson(
       baseUrl,
       "POST",
       "/auth/refresh",
-      { refreshToken: raceLogin.payload.refreshToken }
+      {
+        refreshToken: raceLogin.payload.refreshToken,
+        refreshRequestId
+      }
     );
     assert.equal(rotated.status, 200);
     assert.notEqual(rotated.payload.refreshToken, raceLogin.payload.refreshToken);
+
+    // Simula respuesta perdida: el mismo predecesor + requestId debe recuperar
+    // exactamente el sucesor ya emitido, sin volver a rotar la sesión.
+    const recoveredRotation = await requestJson(
+      baseUrl,
+      "POST",
+      "/auth/refresh",
+      {
+        refreshToken: raceLogin.payload.refreshToken,
+        refreshRequestId
+      }
+    );
+    assert.equal(recoveredRotation.status, 200);
+    assert.equal(recoveredRotation.payload.refreshToken, rotated.payload.refreshToken);
+    assert.equal(recoveredRotation.payload.session.id, rotated.payload.session.id);
+
+    // El mismo refresh consumido con otra identidad de intento NO puede heredar
+    // el replay: conserva la semántica de exactamente un ganador lógico.
+    const competingRotation = await requestJson(
+      baseUrl,
+      "POST",
+      "/auth/refresh",
+      {
+        refreshToken: raceLogin.payload.refreshToken,
+        refreshRequestId: "account-security-refresh-competing-02"
+      }
+    );
+    assert.equal(competingRotation.status, 401);
 
     const exactLogout = await requestJson(
       baseUrl,
