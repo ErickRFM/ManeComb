@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { apiClient, getApiErrorMessage } from '@/src/api/client';
+import {
+  getSharedPortalRealtimeSocket,
+  subscribeSharedPortalRealtimeSocket,
+} from '@/src/store/use-app-store';
 import { AppTheme, Typography } from '@/constants/theme';
 import { formatCurrency, formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../cards';
@@ -40,6 +44,10 @@ type ManualPaymentPortalPayload = {
 
 type Props = {
   orderId: string;
+};
+
+type ManualPaymentRealtimePayload = {
+  orderId?: string;
 };
 
 function createIdempotencyKey() {
@@ -104,6 +112,28 @@ export function ManualTransferEvidenceCard({ orderId }: Props) {
   }, [orderId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!orderId) return undefined;
+
+    let boundSocket: ReturnType<typeof getSharedPortalRealtimeSocket> = null;
+    const onManualPaymentUpdated = (payload: ManualPaymentRealtimePayload) => {
+      if (String(payload?.orderId || '') !== orderId) return;
+      void load();
+    };
+    const bind = (nextSocket: ReturnType<typeof getSharedPortalRealtimeSocket>) => {
+      if (boundSocket === nextSocket) return;
+      boundSocket?.off('manual-payment:updated', onManualPaymentUpdated);
+      boundSocket = nextSocket;
+      boundSocket?.on('manual-payment:updated', onManualPaymentUpdated);
+    };
+
+    const unsubscribe = subscribeSharedPortalRealtimeSocket(bind);
+    return () => {
+      boundSocket?.off('manual-payment:updated', onManualPaymentUpdated);
+      unsubscribe();
+    };
+  }, [load, orderId]);
 
   const resetSubmissionKey = () => {
     idempotencyKeyRef.current = null;

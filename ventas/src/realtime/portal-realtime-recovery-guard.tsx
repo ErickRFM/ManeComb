@@ -1,12 +1,21 @@
 import { type ReactNode, useCallback, useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useAppStore } from '@/src/store/use-app-store';
+import { usePortalStore } from '@/features/portal/store/use-portal-store';
+import {
+  getSharedPortalRealtimeSocket,
+  subscribeSharedPortalRealtimeSocket,
+  useAppStore,
+} from '@/src/store/use-app-store';
 import { shouldReconcileDisconnected } from './recovery-policy';
 
 const RECOVERY_COOLDOWN_MS = 3_000;
 const WATCHDOG_TICK_MS = 2_000;
 
 type RecoveryReason = 'online' | 'pageshow' | 'socket' | 'visible';
+
+type IncidentEnvelope = {
+  incident?: unknown;
+};
 
 /**
  * Cinturon de seguridad del Portal sobre el Socket.IO canonico.
@@ -18,6 +27,11 @@ type RecoveryReason = 'online' | 'pageshow' | 'socket' | 'visible';
  * de recuperacion real. La rotacion JWT se sincroniza directamente en la
  * credencial `socket.auth` desde el store, sin abrir otro socket ni recargar el
  * Portal completo.
+ *
+ * Este mismo borde normaliza los envelopes realtime operativos que backend emite
+ * con nombres distintos. No crea otro transporte: `incident:created` y
+ * `incident:sos` se proyectan al handler incremental de `incident:updated` que
+ * ya es la autoridad del store del Portal.
  */
 export function PortalRealtimeRecoveryGuard({ children }: { children: ReactNode }) {
   const {
@@ -67,6 +81,35 @@ export function PortalRealtimeRecoveryGuard({ children }: { children: ReactNode 
       });
     recoveryInFlight.current = recovery;
   }, [refreshAll, token, userId]);
+
+  useEffect(() => {
+    if (!token || !userId) return undefined;
+
+    let boundSocket: ReturnType<typeof getSharedPortalRealtimeSocket> = null;
+
+    const applyIncident = (payload: unknown) => {
+      if (!payload || typeof payload !== 'object' || !('id' in payload)) return;
+      usePortalStore.getState().applyRealtimeEvent('incident:updated', payload);
+    };
+    const onIncidentCreated = (payload: unknown) => applyIncident(payload);
+    const onIncidentSos = (payload: IncidentEnvelope) => applyIncident(payload?.incident);
+
+    const bind = (nextSocket: ReturnType<typeof getSharedPortalRealtimeSocket>) => {
+      if (boundSocket === nextSocket) return;
+      boundSocket?.off('incident:created', onIncidentCreated);
+      boundSocket?.off('incident:sos', onIncidentSos);
+      boundSocket = nextSocket;
+      boundSocket?.on('incident:created', onIncidentCreated);
+      boundSocket?.on('incident:sos', onIncidentSos);
+    };
+
+    const unsubscribe = subscribeSharedPortalRealtimeSocket(bind);
+    return () => {
+      boundSocket?.off('incident:created', onIncidentCreated);
+      boundSocket?.off('incident:sos', onIncidentSos);
+      unsubscribe();
+    };
+  }, [token, userId]);
 
   useEffect(() => {
     if (!token || !userId || typeof window === 'undefined' || typeof document === 'undefined') {
