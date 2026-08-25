@@ -344,10 +344,6 @@ class ManeCombLocationService : Service(), LocationListener {
       .minOrNull()
   }
 
-  /**
-   * `pending:*` is an explicit offline-session marker. A blank session means live tracking only
-   * and must never create a RouteSession implicitly.
-   */
   private fun ensureRouteSessionStarted(authRetry: Boolean = true): Boolean {
     val safeApiUrl = apiUrl
     val safeToken = token
@@ -408,9 +404,6 @@ class ManeCombLocationService : Service(), LocationListener {
       connection.setRequestProperty("Authorization", "Bearer $safeToken")
       connection.setRequestProperty("Content-Type", "application/json")
 
-      // The persisted body owns capture time. Queue age is derived immediately
-      // before every attempt so retries report elapsed transport delay without
-      // mutating the durable queue or trusting the server/device wall-clock offset.
       val uploadBody = JSONObject(body.toString())
       val capturedAt = uploadBody.optLong("timestamp", 0L)
       val packetId = uploadBody.optString("packetId", "")
@@ -470,6 +463,8 @@ class ManeCombLocationService : Service(), LocationListener {
     if (hardStopped) return false
     val safeRefreshToken = refreshToken
     if (safeRefreshToken.isBlank()) return false
+    val preferences = prefs()
+    val refreshRequestId = ManeCombLocationCredentials.getOrCreateRefreshRequestId(preferences)
     var connection: HttpURLConnection? = null
     return try {
       connection = URL("$apiUrl/auth/refresh").openConnection() as HttpURLConnection
@@ -479,10 +474,22 @@ class ManeCombLocationService : Service(), LocationListener {
       connection.doOutput = true
       connection.setRequestProperty("Content-Type", "application/json")
       OutputStreamWriter(connection.outputStream).use { writer ->
-        writer.write(JSONObject().put("refreshToken", safeRefreshToken).toString())
+        writer.write(
+          JSONObject()
+            .put("refreshToken", safeRefreshToken)
+            .put("refreshRequestId", refreshRequestId)
+            .toString()
+        )
       }
-      if (connection.responseCode !in 200..299) {
+      val responseCode = connection.responseCode
+      if (responseCode !in 200..299) {
         closeConnectionBody(connection)
+        if (
+          responseCode == HttpURLConnection.HTTP_UNAUTHORIZED ||
+          responseCode == HttpURLConnection.HTTP_FORBIDDEN
+        ) {
+          ManeCombLocationCredentials.setRefreshRequestId(preferences, null)
+        }
         false
       } else {
         val response = connection.inputStream.bufferedReader().use { it.readText() }
@@ -492,7 +499,7 @@ class ManeCombLocationService : Service(), LocationListener {
         if (nextToken.isBlank()) false else {
           token = nextToken
           refreshToken = nextRefreshToken
-          ManeCombLocationCredentials.write(prefs(), token, refreshToken)
+          ManeCombLocationCredentials.write(preferences, token, refreshToken)
           true
         }
       }
@@ -564,7 +571,6 @@ class ManeCombLocationService : Service(), LocationListener {
       try {
         connection.errorStream?.close()
       } catch (_: Exception) {
-        // Nothing else to close.
       }
     }
   }
@@ -620,7 +626,7 @@ class ManeCombLocationService : Service(), LocationListener {
         val request = NetworkRequest.Builder()
           .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
           .build()
-        manager.registerNetworkCallback(request, callback)
+        manager.registerNetworkCallback(callback)
       }
       networkCallback = callback
     } catch (error: Exception) {
