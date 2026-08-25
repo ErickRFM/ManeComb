@@ -626,7 +626,7 @@ class ManeCombLocationService : Service(), LocationListener {
         val request = NetworkRequest.Builder()
           .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
           .build()
-        manager.registerNetworkCallback(callback)
+        manager.registerNetworkCallback(request, callback)
       }
       networkCallback = callback
     } catch (error: Exception) {
