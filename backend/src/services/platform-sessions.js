@@ -4,6 +4,11 @@ const mongoose = require("mongoose");
 const { PlatformSessionModel } = require("../data/models");
 const { PLATFORM_REFRESH_TOKEN_TTL_DAYS } = require("../config/env");
 const { getRequestIp, getUserAgent } = require("./audit");
+const {
+  getRefreshReplay,
+  setRefreshReplay,
+  waitForRefreshReplay
+} = require("./refresh-replay");
 
 const memoryPlatformSessions = new Map();
 
@@ -89,8 +94,48 @@ function serializePlatformSession(session, currentSessionId) {
   };
 }
 
-async function rotatePlatformRefreshToken(refreshToken, req) {
+async function resolveValidPlatformReplay(tokenHash, refreshRequestId, waitForWinner = false) {
+  const replay = waitForWinner
+    ? await waitForRefreshReplay("platform", tokenHash, refreshRequestId)
+    : await getRefreshReplay("platform", tokenHash, refreshRequestId);
+  if (!replay?.refreshToken || !replay?.sessionId) return null;
+
+  const successorHash = hashRefreshToken(replay.refreshToken);
+  let session = null;
+
+  if (!isMongoReady()) {
+    const candidate = memoryPlatformSessions.get(replay.sessionId);
+    if (
+      candidate &&
+      candidate.refreshTokenHash === successorHash &&
+      candidate.isActive &&
+      !candidate.revokedAt &&
+      new Date(candidate.expiresAt).getTime() > Date.now()
+    ) {
+      session = candidate;
+    }
+  } else {
+    session = await PlatformSessionModel.findOne({
+      _id: replay.sessionId,
+      refreshTokenHash: successorHash,
+      isActive: true,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() }
+    }).lean();
+  }
+
+  if (!session) return null;
+  return {
+    refreshToken: replay.refreshToken,
+    session: serializePlatformSession(session, session._id),
+    replayed: true
+  };
+}
+
+async function rotatePlatformRefreshToken(refreshToken, req, refreshRequestId = "") {
   const tokenHash = hashRefreshToken(refreshToken);
+  const replay = await resolveValidPlatformReplay(tokenHash, refreshRequestId);
+  if (replay) return replay;
 
   if (!isMongoReady()) {
     const session = [...memoryPlatformSessions.values()].find(
@@ -100,32 +145,55 @@ async function rotatePlatformRefreshToken(refreshToken, req) {
         !entry.revokedAt &&
         new Date(entry.expiresAt).getTime() > Date.now()
     );
-    if (!session) return null;
+    if (!session) return resolveValidPlatformReplay(tokenHash, refreshRequestId, true);
+
     const nextRefreshToken = createRefreshToken();
     session.refreshTokenHash = hashRefreshToken(nextRefreshToken);
     session.lastSeenAt = new Date();
     session.ip = getRequestIp(req);
     session.userAgent = getUserAgent(req);
     memoryPlatformSessions.set(session._id, session);
-    return { refreshToken: nextRefreshToken, session: serializePlatformSession(session, session._id) };
+    await setRefreshReplay("platform", tokenHash, refreshRequestId, {
+      refreshToken: nextRefreshToken,
+      sessionId: session._id
+    });
+    return {
+      refreshToken: nextRefreshToken,
+      session: serializePlatformSession(session, session._id),
+      replayed: false
+    };
   }
 
-  const session = await PlatformSessionModel.findOne({
-    refreshTokenHash: tokenHash,
-    isActive: true,
-    revokedAt: null,
-    expiresAt: { $gt: new Date() }
-  });
-  if (!session) return null;
-
   const nextRefreshToken = createRefreshToken();
-  session.refreshTokenHash = hashRefreshToken(nextRefreshToken);
-  session.lastSeenAt = new Date();
-  session.ip = getRequestIp(req);
-  session.userAgent = getUserAgent(req);
-  await session.save();
+  const session = await PlatformSessionModel.findOneAndUpdate(
+    {
+      refreshTokenHash: tokenHash,
+      isActive: true,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() }
+    },
+    {
+      $set: {
+        refreshTokenHash: hashRefreshToken(nextRefreshToken),
+        lastSeenAt: new Date(),
+        ip: getRequestIp(req),
+        userAgent: getUserAgent(req)
+      }
+    },
+    { returnDocument: "after" }
+  ).lean();
 
-  return { refreshToken: nextRefreshToken, session: serializePlatformSession(session, session._id) };
+  if (!session) return resolveValidPlatformReplay(tokenHash, refreshRequestId, true);
+
+  await setRefreshReplay("platform", tokenHash, refreshRequestId, {
+    refreshToken: nextRefreshToken,
+    sessionId: session._id
+  });
+  return {
+    refreshToken: nextRefreshToken,
+    session: serializePlatformSession(session, session._id),
+    replayed: false
+  };
 }
 
 async function getPlatformSessionById(sessionId) {
