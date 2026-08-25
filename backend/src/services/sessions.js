@@ -146,7 +146,11 @@ async function resolveValidRefreshReplay(tokenHash, refreshRequestId, waitForWin
   };
 }
 
-async function rotateRefreshToken(refreshToken, req, refreshRequestId = "") {
+async function rotateRefreshToken(
+  refreshToken,
+  req,
+  refreshRequestId = req?.body?.refreshRequestId || ""
+) {
   const tokenHash = hashRefreshToken(refreshToken);
   const replay = await resolveValidRefreshReplay(tokenHash, refreshRequestId);
   if (replay) return replay;
