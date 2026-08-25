@@ -132,7 +132,11 @@ async function resolveValidPlatformReplay(tokenHash, refreshRequestId, waitForWi
   };
 }
 
-async function rotatePlatformRefreshToken(refreshToken, req, refreshRequestId = "") {
+async function rotatePlatformRefreshToken(
+  refreshToken,
+  req,
+  refreshRequestId = req?.body?.refreshRequestId || ""
+) {
   const tokenHash = hashRefreshToken(refreshToken);
   const replay = await resolveValidPlatformReplay(tokenHash, refreshRequestId);
   if (replay) return replay;
