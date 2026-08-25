@@ -5,6 +5,11 @@ const { SessionModel } = require("../data/models");
 const { REFRESH_TOKEN_TTL_DAYS } = require("../config/env");
 const { getOrganizationId } = require("../middlewares/access-control");
 const { getRequestIp, getUserAgent } = require("./audit");
+const {
+  getRefreshReplay,
+  setRefreshReplay,
+  waitForRefreshReplay
+} = require("./refresh-replay");
 
 const memorySessions = new Map();
 
@@ -103,8 +108,52 @@ function serializeSession(session, currentSessionId = null) {
   };
 }
 
-async function rotateRefreshToken(refreshToken, req) {
+async function resolveValidRefreshReplay(tokenHash, refreshRequestId, waitForWinner = false) {
+  const replay = waitForWinner
+    ? await waitForRefreshReplay("user", tokenHash, refreshRequestId)
+    : await getRefreshReplay("user", tokenHash, refreshRequestId);
+  if (!replay?.refreshToken || !replay?.sessionId) return null;
+
+  const successorHash = hashRefreshToken(replay.refreshToken);
+  let session = null;
+
+  if (!isMongoReady()) {
+    const candidate = memorySessions.get(replay.sessionId);
+    if (
+      candidate &&
+      candidate.refreshTokenHash === successorHash &&
+      candidate.isActive &&
+      !candidate.revokedAt &&
+      new Date(candidate.expiresAt).getTime() > Date.now()
+    ) {
+      session = candidate;
+    }
+  } else {
+    session = await SessionModel.findOne({
+      _id: replay.sessionId,
+      refreshTokenHash: successorHash,
+      isActive: true,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() }
+    }).lean();
+  }
+
+  if (!session) return null;
+  return {
+    refreshToken: replay.refreshToken,
+    session: serializeSession(session, session._id),
+    replayed: true
+  };
+}
+
+async function rotateRefreshToken(
+  refreshToken,
+  req,
+  refreshRequestId = req?.body?.refreshRequestId || ""
+) {
   const tokenHash = hashRefreshToken(refreshToken);
+  const replay = await resolveValidRefreshReplay(tokenHash, refreshRequestId);
+  if (replay) return replay;
 
   if (!isMongoReady()) {
     const session = [...memorySessions.values()].find(
@@ -116,7 +165,7 @@ async function rotateRefreshToken(refreshToken, req) {
     );
 
     if (!session) {
-      return null;
+      return resolveValidRefreshReplay(tokenHash, refreshRequestId, true);
     }
 
     const nextRefreshToken = createRefreshToken();
@@ -125,34 +174,50 @@ async function rotateRefreshToken(refreshToken, req) {
     session.ip = getRequestIp(req);
     session.userAgent = getUserAgent(req);
     memorySessions.set(session._id, session);
+    await setRefreshReplay("user", tokenHash, refreshRequestId, {
+      refreshToken: nextRefreshToken,
+      sessionId: session._id
+    });
 
     return {
       refreshToken: nextRefreshToken,
-      session: serializeSession(session, session._id)
+      session: serializeSession(session, session._id),
+      replayed: false
     };
   }
 
-  const session = await SessionModel.findOne({
-    refreshTokenHash: tokenHash,
-    isActive: true,
-    revokedAt: null,
-    expiresAt: { $gt: new Date() }
-  });
+  const nextRefreshToken = createRefreshToken();
+  const session = await SessionModel.findOneAndUpdate(
+    {
+      refreshTokenHash: tokenHash,
+      isActive: true,
+      revokedAt: null,
+      expiresAt: { $gt: new Date() }
+    },
+    {
+      $set: {
+        refreshTokenHash: hashRefreshToken(nextRefreshToken),
+        lastSeenAt: new Date(),
+        ip: getRequestIp(req),
+        userAgent: getUserAgent(req)
+      }
+    },
+    { returnDocument: "after" }
+  ).lean();
 
   if (!session) {
-    return null;
+    return resolveValidRefreshReplay(tokenHash, refreshRequestId, true);
   }
 
-  const nextRefreshToken = createRefreshToken();
-  session.refreshTokenHash = hashRefreshToken(nextRefreshToken);
-  session.lastSeenAt = new Date();
-  session.ip = getRequestIp(req);
-  session.userAgent = getUserAgent(req);
-  await session.save();
+  await setRefreshReplay("user", tokenHash, refreshRequestId, {
+    refreshToken: nextRefreshToken,
+    sessionId: session._id
+  });
 
   return {
     refreshToken: nextRefreshToken,
-    session: serializeSession(session, session._id)
+    session: serializeSession(session, session._id),
+    replayed: false
   };
 }
 
@@ -200,9 +265,6 @@ async function revokeSession(userId, sessionId, reason = "revoked") {
   if (!isMongoReady()) {
     const session = memorySessions.get(sessionId);
 
-    // Una sesion ya revocada no vuelve a producir una capacidad de teardown.
-    // Esto es importante para logout con bearer expirado: puede cerrar su sid
-    // una vez, pero no reutilizarse indefinidamente para side effects auxiliares.
     if (
       !session ||
       session.userId !== userId ||
