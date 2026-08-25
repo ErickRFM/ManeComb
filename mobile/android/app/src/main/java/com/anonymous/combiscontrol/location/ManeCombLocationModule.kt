@@ -97,6 +97,62 @@ class ManeCombLocationModule(
     }
   }
 
+  @ReactMethod
+  fun getCredentialState(promise: Promise) {
+    try {
+      val prefs = reactContext.getSharedPreferences(
+        ManeCombLocationService.PREFS_NAME,
+        Context.MODE_PRIVATE
+      )
+      val credentials = ManeCombLocationCredentials.read(prefs)
+      if (credentials == null) {
+        promise.resolve(null)
+        return
+      }
+      promise.resolve(Arguments.createMap().apply {
+        putString("token", credentials.token)
+        putString("refreshToken", credentials.refreshToken)
+        putString("refreshRequestId", credentials.refreshRequestId)
+      })
+    } catch (error: Exception) {
+      promise.reject("location_credentials_read_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun setCredentials(token: String, refreshToken: String, promise: Promise) {
+    try {
+      val prefs = reactContext.getSharedPreferences(
+        ManeCombLocationService.PREFS_NAME,
+        Context.MODE_PRIVATE
+      )
+      if (!ManeCombLocationCredentials.write(prefs, token, refreshToken)) {
+        promise.resolve(false)
+        return
+      }
+      if (prefs.getBoolean(ManeCombLocationService.KEY_SERVICE_ENABLED, false)) {
+        ManeCombLocationService.startFromPersistedConfig(reactContext)
+      }
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("location_credentials_write_failed", error.message, error)
+    }
+  }
+
+  @ReactMethod
+  fun setRefreshRequestId(refreshRequestId: String?, promise: Promise) {
+    try {
+      val prefs = reactContext.getSharedPreferences(
+        ManeCombLocationService.PREFS_NAME,
+        Context.MODE_PRIVATE
+      )
+      ManeCombLocationCredentials.setRefreshRequestId(prefs, refreshRequestId)
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("location_refresh_request_id_write_failed", error.message, error)
+    }
+  }
+
   private fun putNullableTimestamp(
     map: com.facebook.react.bridge.WritableMap,
     key: String,
