@@ -594,7 +594,7 @@ export async function getLocationsRequest() {
 }
 
 export async function getOperationalUnitsRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: OperationalUnitSnapshot[]>(
+  const response = await apiClient.get<{ ok: boolean; data: OperationalUnitSnapshot[] }>(
     '/operational-units'
   );
   return response.data.data;
