@@ -10,6 +10,11 @@ import {
   runtimeNetworkConfig,
   wait,
 } from '@/src/api/mobile-runtime';
+import {
+  getBackgroundLocationCredentialStateAsync,
+  setBackgroundLocationCredentialsAsync,
+  setBackgroundLocationRefreshRequestIdAsync,
+} from '@/src/native/background-location';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import type {
   DriverActivationRegisterPayload,
@@ -81,6 +86,30 @@ function generateTraceId() {
   return `trace-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function generateRefreshRequestId() {
+  if (typeof globalThis !== 'undefined' && typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `refresh-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+async function resolveRefreshAttempt(fallbackRefreshToken: string) {
+  const nativeState = await getBackgroundLocationCredentialStateAsync().catch(() => null);
+  const refreshToken = nativeState?.refreshToken?.trim() || fallbackRefreshToken.trim();
+  const refreshRequestId = nativeState?.refreshRequestId?.trim() || generateRefreshRequestId();
+
+  if (refreshToken) {
+    await setBackgroundLocationRefreshRequestIdAsync(refreshRequestId).catch(() => false);
+  }
+
+  return { refreshToken, refreshRequestId };
+}
+
+async function syncRefreshResult(result: LoginResult) {
+  if (!result.token?.trim() || !result.refreshToken?.trim()) return;
+  await setBackgroundLocationCredentialsAsync(result.token, result.refreshToken).catch(() => false);
+}
+
 function signalNetwork(signal: 'online' | 'offline' | 'recovering') {
   sessionRecoveryConfig?.onNetworkSignal?.(signal);
 }
@@ -128,6 +157,7 @@ const SENSITIVE_LOG_KEYS = new Set([
   'token',
   'refreshToken',
   'refresh_token',
+  'refreshRequestId',
   'backupCipher',
 ]);
 
@@ -303,27 +333,25 @@ async function refreshAccessToken() {
 
   if (!refreshTokenPromise) {
     refreshTokenPromise = Promise.resolve(sessionRecoveryConfig.getRefreshToken())
-      .then(async (refreshToken) => {
-        if (!refreshToken) {
+      .then(async (storedRefreshToken) => {
+        if (!storedRefreshToken) {
           return null;
         }
 
-        // Backend rota el refresh token (`rotateRefreshToken`): reintentar este
-        // POST replaya un token ya consumido y el segundo intento vuelve como
-        // 401 "Sesion expirada o revocada", cerrando una sesion que era valida.
-        // Pasa con un 502/504 del tier gratuito, con un 429 del refreshLimiter
-        // o con una respuesta perdida en red movil. La politica es la misma que
-        // en `refreshSessionRequest`: este token no se reintenta nunca.
+        const attempt = await resolveRefreshAttempt(storedRefreshToken);
+        if (!attempt.refreshToken) return null;
+
         const response = await apiClient.post<LoginResult>(
           '/auth/refresh',
-          { refreshToken },
+          attempt,
           {
             _skipAuthRefresh: true,
-            _skipNetworkRetry: true,
+            _allowRetry: true,
           } as RetryableRequestConfig
         );
 
         await sessionRecoveryConfig?.onTokenRefresh(response.data);
+        await syncRefreshResult(response.data);
         setAuthToken(response.data.token);
         return response.data.token;
       })
@@ -488,12 +516,6 @@ export async function registerRequest(payload: RegisterPayload) {
   return response.data;
 }
 
-/**
- * Timeout para el primer `/auth/me` tras abrir la app o iniciar sesion. El
- * backend vive en el tier gratuito de Render, que suspende el servicio tras
- * inactividad y puede tardar 30-60s en despertar: con el timeout normal de 15s
- * el arranque en frio se abortaba y se reportaba como fallo de sincronizacion.
- */
 export const COLD_START_SESSION_TIMEOUT_MS = 75000;
 
 export async function getSessionRequest(options: { coldStart?: boolean; appVersion?: string } = {}) {
@@ -513,14 +535,16 @@ export async function getSessionRequest(options: { coldStart?: boolean; appVersi
 }
 
 export async function refreshSessionRequest(refreshToken: string, appVersion?: string) {
+  const attempt = await resolveRefreshAttempt(refreshToken);
   const response = await apiClient.post<LoginResult>('/auth/refresh', {
-    refreshToken,
+    ...attempt,
     appVersion,
   }, {
     _skipAuthRefresh: true,
-    _skipNetworkRetry: true,
+    _allowRetry: true,
   } as RetryableRequestConfig);
 
+  await syncRefreshResult(response.data);
   return response.data;
 }
 
@@ -559,9 +583,6 @@ export async function logoutRequest(
     refreshToken,
     pushToken,
   }, {
-    // Logout no puede disparar otro refresh ni ser replayado por la politica de
-    // red: el bearer actual (sid) es justamente la prueba usada para revocar la
-    // sesion exacta aunque el refreshToken haya rotado en paralelo.
     _skipAuthRefresh: true,
     _skipNetworkRetry: true,
   } as RetryableRequestConfig);
@@ -572,13 +593,8 @@ export async function getLocationsRequest() {
   return response.data.data;
 }
 
-/**
- * Proyeccion operacional canonica. Es la unica fuente de estado, GPS, ruta,
- * conductor y ETA para todas las pantallas. No derives ninguno de esos campos
- * a partir de /locations/live.
- */
 export async function getOperationalUnitsRequest() {
-  const response = await apiClient.get<{ ok: boolean; data: OperationalUnitSnapshot[] }>(
+  const response = await apiClient.get<{ ok: boolean; data: OperationalUnitSnapshot[]>(
     '/operational-units'
   );
   return response.data.data;
@@ -627,11 +643,8 @@ export async function getChatContactsRequest() {
 export async function openGeneralConversationRequest(channelMode: ConversationChannelMode = 'chat') {
   const response = await apiClient.post<{ ok: boolean; data: ConversationSummary }>(
     '/chat/conversations/general',
-    {
-      channelMode,
-    }
+    { channelMode }
   );
-
   return response.data.data;
 }
 
@@ -641,12 +654,8 @@ export async function openDirectConversationRequest(
 ) {
   const response = await apiClient.post<{ ok: boolean; data: ConversationSummary }>(
     '/chat/conversations/direct',
-    {
-      targetUserId,
-      channelMode,
-    }
+    { targetUserId, channelMode }
   );
-
   return response.data.data;
 }
 
@@ -676,10 +685,7 @@ export async function getMessagesPageRequest(
       ...(options.before ? { before: options.before } : {}),
     },
   });
-  return {
-    items: response.data.data,
-    pageInfo: response.data.pageInfo,
-  };
+  return { items: response.data.data, pageInfo: response.data.pageInfo };
 }
 
 export async function sendMessageRequest(
@@ -709,14 +715,11 @@ export async function sendVoiceMessageRequest(conversationId: string, formData: 
     `/chat/conversations/${conversationId}/audio`,
     formData,
     {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 45000,
       _allowRetry: true,
     } as RetryableRequestConfig
   );
-
   return response.data.data;
 }
 
@@ -773,14 +776,11 @@ export async function sendMediaMessageRequest(conversationId: string, formData: 
     `/chat/conversations/${conversationId}/media`,
     formData,
     {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 45000,
       _allowRetry: true,
     } as RetryableRequestConfig
   );
-
   return response.data.data;
 }
 
@@ -791,11 +791,7 @@ export async function getDocumentsRequest() {
 
 export type DocumentUploadFile =
   | Blob
-  | {
-      uri: string;
-      name: string;
-      type: string;
-    };
+  | { uri: string; name: string; type: string };
 
 export async function uploadDriverDocumentRequest(payload: {
   category: string;
@@ -813,26 +809,17 @@ export async function uploadDriverDocumentRequest(payload: {
     '/documents',
     formData,
     {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 45000,
       _allowRetry: false,
     } as RetryableRequestConfig
   );
-
   return response.data.data;
 }
 
 export function resolveAssetUrl(fileUrl: string | null | undefined) {
-  if (!fileUrl) {
-    return null;
-  }
-
-  if (/^https?:\/\//i.test(fileUrl)) {
-    return fileUrl;
-  }
-
+  if (!fileUrl) return null;
+  if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
   return `${API_ORIGIN}${fileUrl.startsWith('/') ? fileUrl : `/${fileUrl}`}`;
 }
 
@@ -912,15 +899,8 @@ export async function updateVehicleLocationRequest(payload: {
 export async function searchNavigationPlacesRequest(query: string, origin: GeoPoint) {
   const response = await apiClient.get<{ ok: boolean; data: { provider: string; results: NavigationPlaceResult[] } }>(
     '/navigation/search',
-    {
-      params: {
-        q: query,
-        latitude: origin.latitude,
-        longitude: origin.longitude,
-      },
-    }
+    { params: { q: query, latitude: origin.latitude, longitude: origin.longitude } }
   );
-
   return response.data.data;
 }
 
@@ -928,14 +908,10 @@ export async function reverseNavigationPlaceRequest(point: GeoPoint, options?: {
   const response = await apiClient.get<{ ok: boolean; data: { provider: string; result: NavigationPlaceResult } }>(
     '/navigation/reverse',
     {
-      params: {
-        latitude: point.latitude,
-        longitude: point.longitude,
-      },
+      params: { latitude: point.latitude, longitude: point.longitude },
       signal: options?.signal,
     }
   );
-
   return response.data.data;
 }
 
@@ -986,10 +962,7 @@ export async function deleteNavigationRouteRequest(routeId: string) {
   return response.data.data;
 }
 
-export async function assignVehicleRouteRequest(payload: {
-  vehicleId: string;
-  routeId: string;
-}) {
+export async function assignVehicleRouteRequest(payload: { vehicleId: string; routeId: string }) {
   const response = await apiClient.post<{ ok: boolean; data: Vehicle }>('/navigation/assign', payload);
   return response.data.data;
 }
@@ -1004,8 +977,6 @@ export async function getActiveRouteSessionRequest(vehicleId: string) {
 export async function startRouteSessionRequest(vehicleId: string, startedAt?: string | null) {
   const response = await apiClient.post<{ ok: boolean; data: RouteSession }>('/navigation/sessions/start', {
     vehicleId,
-    // Solo se envia al reconciliar una jornada iniciada sin Internet. El backend
-    // lo acota al pasado y a la ventana de la cola offline.
     ...(startedAt ? { startedAt } : {}),
   });
   return response.data.data;
@@ -1037,19 +1008,10 @@ export async function getNavigationTripLogsRequest(params: {
 }) {
   const response = await apiClient.get<{
     ok: boolean;
-    data: {
-      vehicleId: string;
-      serviceDate: string;
-      logs: VehicleTripRecord[];
-    };
+    data: { vehicleId: string; serviceDate: string; logs: VehicleTripRecord[] };
   }>('/navigation/trips', {
-    params: {
-      vehicleId: params.vehicleId,
-      date: params.date,
-      limit: params.limit,
-    },
+    params: { vehicleId: params.vehicleId, date: params.date, limit: params.limit },
   });
-
   return response.data.data;
 }
 
@@ -1072,7 +1034,6 @@ export async function createNavigationTripLogRequest(payload: {
     '/navigation/trips',
     payload
   );
-
   return response.data.data;
 }
 
