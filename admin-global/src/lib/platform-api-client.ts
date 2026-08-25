@@ -1,5 +1,29 @@
 import axios, { type AxiosError, type AxiosInstance } from 'axios';
 
+const TRANSIENT_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+export class PlatformApiError extends Error {
+  status: number | null;
+  code: string | null;
+  retryable: boolean;
+
+  constructor(message: string, options: { status?: number | null; code?: string | null; retryable?: boolean } = {}) {
+    super(message);
+    this.name = 'PlatformApiError';
+    this.status = options.status ?? null;
+    this.code = options.code ?? null;
+    this.retryable = options.retryable === true;
+  }
+}
+
+export function isAuthoritativePlatformAuthError(error: unknown) {
+  return error instanceof PlatformApiError && (error.status === 401 || error.status === 403);
+}
+
+export function isTransientPlatformApiError(error: unknown) {
+  return error instanceof PlatformApiError && error.retryable;
+}
+
 function normalizeApiOrigin(value: string) {
   const rawValue = value.trim();
   if (!rawValue) return '';
@@ -49,9 +73,12 @@ export function createPlatformApiClient(pathname: string): AxiosInstance {
 
   instance.interceptors.response.use(
     (response) => response,
-    (error: AxiosError<{ ok?: false; message?: string }>) => {
+    (error: AxiosError<{ ok?: false; message?: string; code?: string }>) => {
+      const status = error.response?.status ?? null;
+      const code = String(error.response?.data?.code || error.code || '').trim() || null;
       const message = error.response?.data?.message || error.message || 'Error de conexion';
-      return Promise.reject(new Error(message));
+      const retryable = status === null || TRANSIENT_STATUS_CODES.has(status);
+      return Promise.reject(new PlatformApiError(message, { status, code, retryable }));
     }
   );
 

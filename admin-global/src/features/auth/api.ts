@@ -1,6 +1,21 @@
-import { createPlatformApiClient, getPlatformTokenHeader } from '@/lib/platform-api-client';
+import {
+  createPlatformApiClient,
+  getPlatformTokenHeader,
+  isTransientPlatformApiError,
+} from '@/lib/platform-api-client';
 
 const platformApi = createPlatformApiClient('/api/platform/auth');
+
+function createRefreshRequestId() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `platform-refresh-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export async function platformLoginRequest(email: string, password: string) {
   const { data } = await platformApi.post('/login', { email, password });
@@ -8,8 +23,21 @@ export async function platformLoginRequest(email: string, password: string) {
 }
 
 export async function platformRefreshRequest(refreshToken: string) {
-  const { data } = await platformApi.post('/refresh', { refreshToken });
-  return data.data as { token: string; refreshToken: string; session: { id: string; expiresAt: string } };
+  const refreshRequestId = createRefreshRequestId();
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const { data } = await platformApi.post('/refresh', { refreshToken, refreshRequestId });
+      return data.data as { token: string; refreshToken: string; session: { id: string; expiresAt: string } };
+    } catch (error) {
+      lastError = error;
+      if (attempt > 0 || !isTransientPlatformApiError(error)) throw error;
+      await delay(250);
+    }
+  }
+
+  throw lastError;
 }
 
 export async function platformSessionRequest(token: string) {

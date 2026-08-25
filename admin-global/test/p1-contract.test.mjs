@@ -23,12 +23,17 @@ assert.match(app, /AdminProtectedRoute/);
 assert.match(sharedClient, /createPlatformApiClient/);
 assert.match(sharedClient, /parsed\.username \|\| parsed\.password/);
 assert.match(sharedClient, /Authorization: `Bearer \$\{token\}`/);
+assert.match(sharedClient, /class PlatformApiError extends Error/);
+assert.match(sharedClient, /isAuthoritativePlatformAuthError/);
+assert.match(sharedClient, /TRANSIENT_STATUS_CODES/);
 assert.match(authApi, /@\/lib\/platform-api-client/);
 assert.doesNotMatch(authApi, /axios\.create/);
+assert.match(authApi, /refreshRequestId/);
+assert.match(authApi, /isTransientPlatformApiError/);
 
 assert.match(authStore, /restoreSessionFromRefresh/);
 assert.match(authStore, /platformRefreshRequest\(refreshToken\)/);
-assert.match(authStore, /persistSession\(restored\.session\.token, restored\.session\.refreshToken\)/);
+assert.match(authStore, /persistSession\(refreshed\.token, refreshed\.refreshToken\)/);
 assert.match(authStore, /renewSession:/);
 assert.match(authStore, /renewalPromise/);
 assert.match(authStore, /shouldRenewPlatformSession/);
@@ -37,6 +42,26 @@ assert.match(authStore, /let authEpoch = 0/);
 assert.match(authStore, /epoch !== authEpoch/);
 assert.match(authStore, /latest\.refreshToken !== current\.refreshToken/);
 assert.match(authStore, /authEpoch \+= 1/);
+assert.match(authStore, /isAuthoritativePlatformAuthError/);
+assert.match(authStore, /isTransientPlatformApiError/);
+const refreshSessionIndex = authStore.indexOf('refreshSession: async () =>');
+const refreshSessionEnd = authStore.indexOf('logout: async () =>', refreshSessionIndex);
+const refreshSessionBlock = authStore.slice(refreshSessionIndex, refreshSessionEnd);
+assert.match(
+  refreshSessionBlock,
+  /isAuthoritativePlatformAuthError\(error\)[\s\S]*await get\(\)\.renewSession\(\)/,
+  'Refresh de sesión sólo debe consumir refresh tras un rechazo autenticador autoritativo.'
+);
+const bootstrapIndex = authStore.indexOf('bootstrap: async () =>');
+const transientIndex = authStore.indexOf('if (!isAuthoritativePlatformAuthError(error))', bootstrapIndex);
+const transientClearIndex = authStore.indexOf('clearPersistedSession();', transientIndex);
+const authoritativeIndex = authStore.indexOf('if (isAuthoritativePlatformAuthError(error))', transientIndex);
+assert.ok(transientIndex > bootstrapIndex, 'Bootstrap debe distinguir fallos transitorios.');
+assert.ok(authoritativeIndex > transientIndex, 'Bootstrap debe reservar el borrado para rechazo autoritativo.');
+assert.ok(
+  transientClearIndex === -1 || transientClearIndex > authoritativeIndex,
+  'Un fallo transitorio no debe limpiar credenciales antes de comprobar rechazo autoritativo.'
+);
 const logoutIndex = authStore.indexOf("logout: async () =>");
 const clearIndex = authStore.indexOf("clearPersistedSession();", logoutIndex);
 const requestIndex = authStore.indexOf("platformLogoutRequest(current.token)", logoutIndex);

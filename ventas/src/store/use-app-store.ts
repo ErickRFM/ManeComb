@@ -41,6 +41,7 @@ import {
   getUsersRequest,
   getVehiclesRequest,
   getOperationalUnitsRequest,
+  isAuthoritativeSessionError,
   loginRequest,
   logoutRequest,
   registerRequest,
@@ -487,7 +488,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const token = getStoredItem(TOKEN_KEY);
     const refreshToken = getStoredItem(REFRESH_TOKEN_KEY);
 
-    if (!token) {
+    if (!token && !refreshToken) {
       await clearSession(set);
       set({ isBootstrapping: false, isHydrated: true });
       return;
@@ -497,10 +498,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       setAuthToken(token);
       const session = await getSessionRequest();
       const user = session?.profile?.user || session?.user || null;
+      const refreshedState = get();
+      const activeToken = refreshedState.token || token;
+      const activeRefreshToken = refreshedState.refreshToken || refreshToken;
 
+      if (!activeToken) {
+        throw new Error('El backend no devolvio una sesion valida.');
+      }
+
+      setAuthToken(activeToken);
       set({
-        token,
-        refreshToken,
+        token: activeToken,
+        refreshToken: activeRefreshToken,
         user,
         isBootstrapping: false,
         isHydrated: true,
@@ -509,9 +518,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       connectSocket(get);
       void get().refreshAll();
     } catch (error) {
-      await clearSession(set);
+      if (isAuthoritativeSessionError(error)) {
+        await clearSession(set);
+        set({
+          error: getReadableError(error, 'Sesion expirada.'),
+          isBootstrapping: false,
+          isHydrated: true,
+        });
+        return;
+      }
+
+      // Red, timeout, 429 y 5xx no son autoridad para destruir credenciales.
+      // Conservamos tanto el storage como cualquier token rotado por el
+      // interceptor; una recarga/reintento podrá continuar la misma sesión.
+      const current = get();
+      const preservedToken = current.token || token;
+      const preservedRefreshToken = current.refreshToken || refreshToken;
+      if (preservedToken) setAuthToken(preservedToken);
       set({
-        error: getReadableError(error, 'Sesion expirada.'),
+        token: preservedToken,
+        refreshToken: preservedRefreshToken,
+        user: current.user,
+        error: getReadableError(error, 'No fue posible verificar la sesion. Intenta nuevamente.'),
         isBootstrapping: false,
         isHydrated: true,
       });

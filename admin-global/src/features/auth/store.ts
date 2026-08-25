@@ -15,6 +15,10 @@ import {
   platformLogoutRequest,
   platformRefreshRequest,
 } from './api';
+import {
+  isAuthoritativePlatformAuthError,
+  isTransientPlatformApiError,
+} from '@/lib/platform-api-client';
 
 const ACCESS_TOKEN_KEY = 'manecomb-platform-token';
 const REFRESH_TOKEN_KEY = 'manecomb-platform-refresh-token';
@@ -64,6 +68,13 @@ function clearPersistedSession() {
   removeStorageItem(REFRESH_TOKEN_KEY);
 }
 
+function getSessionRecoveryMessage(error: unknown) {
+  if (isTransientPlatformApiError(error)) {
+    return 'No pudimos verificar tu sesión por un problema temporal de conexión. Tu acceso se conserva; intenta nuevamente.';
+  }
+  return error instanceof Error ? error.message : 'No fue posible verificar la sesión de Admin Global.';
+}
+
 function readTokenExpiration(token: string) {
   try {
     const payload = token.split('.')[1];
@@ -89,6 +100,9 @@ export function shouldRenewPlatformSession(
 
 async function restoreSessionFromRefresh(refreshToken: string) {
   const refreshed = await platformRefreshRequest(refreshToken);
+  // La rotación ya ocurrió en backend. Persistimos el sucesor antes de pedir el
+  // perfil para no volver a arrancar con el refresh anterior si esa lectura falla.
+  persistSession(refreshed.token, refreshed.refreshToken);
   const { user, session: info } = await platformSessionRequest(refreshed.token);
   return {
     session: {
@@ -149,32 +163,61 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
           session: { token, refreshToken, user },
           sessionInfo: info,
           isBootstrapping: false,
+          error: null,
         });
         return;
-      } catch {
-        // El access token puede haber expirado mientras el refresh token sigue vigente.
+      } catch (error) {
+        if (epoch !== authEpoch) return;
+        if (!isAuthoritativePlatformAuthError(error)) {
+          // Red, timeout, 429 y 5xx no son una orden de logout. Las credenciales
+          // permanecen persistidas para que el siguiente bootstrap pueda recuperar.
+          set({
+            mode: 'error',
+            session: null,
+            sessionInfo: null,
+            isBootstrapping: false,
+            error: getSessionRecoveryMessage(error),
+          });
+          return;
+        }
+        // 401/403 del access token sí habilitan intentar recuperar con refresh.
       }
     }
 
     try {
       const restored = await restoreSessionFromRefresh(refreshToken);
       if (epoch !== authEpoch) return;
-      persistSession(restored.session.token, restored.session.refreshToken);
       set({
         mode: 'authenticated',
         session: restored.session,
         sessionInfo: restored.sessionInfo,
         isBootstrapping: false,
+        error: null,
       });
-    } catch {
+    } catch (error) {
       if (epoch !== authEpoch) return;
-      clearPersistedSession();
+      if (isAuthoritativePlatformAuthError(error)) {
+        clearPersistedSession();
+        setSessionChallenge(null);
+        set({
+          mode: 'idle',
+          session: null,
+          sessionInfo: null,
+          challengeData: null,
+          isBootstrapping: false,
+          error: null,
+        });
+        return;
+      }
+
+      // La sesión no fue rechazada: conservamos el refresh vigente (incluido un
+      // posible sucesor ya rotado/persistido) y dejamos la recuperación disponible.
       set({
-        mode: 'idle',
+        mode: 'error',
         session: null,
         sessionInfo: null,
-        challengeData: null,
         isBootstrapping: false,
+        error: getSessionRecoveryMessage(error),
       });
     }
   },
@@ -294,7 +337,6 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
         ) {
           return false;
         }
-        persistSession(restored.session.token, restored.session.refreshToken);
         set({
           mode: 'authenticated',
           session: restored.session,
@@ -302,7 +344,18 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
           error: null,
         });
         return true;
-      } catch {
+      } catch (error) {
+        if (
+          isAuthoritativePlatformAuthError(error)
+          && epoch === authEpoch
+          && get().session?.refreshToken === current.refreshToken
+        ) {
+          authEpoch += 1;
+          clearPersistedSession();
+          setSessionChallenge(null);
+          set({ mode: 'idle', session: null, sessionInfo: null, challengeData: null, error: null });
+        }
+        // Un fallo transitorio no cambia la autoridad de la sesión actual.
         return false;
       }
     })();
@@ -323,8 +376,12 @@ export const useAdminStore = create<AdminStore>((set, get) => ({
       const { user, session: info } = await platformSessionRequest(current.token);
       if (epoch !== authEpoch || get().session?.token !== current.token) return;
       set({ session: { ...current, user }, sessionInfo: info });
-    } catch {
-      if (epoch === authEpoch) await get().renewSession();
+    } catch (error) {
+      // Sólo un rechazo de autenticación justifica rotar/recuperar. Una caída de
+      // red no debe consumir refresh tokens ni cerrar una sesión válida.
+      if (epoch === authEpoch && isAuthoritativePlatformAuthError(error)) {
+        await get().renewSession();
+      }
     }
   },
 
