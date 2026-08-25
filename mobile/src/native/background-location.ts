@@ -1,6 +1,12 @@
 import { AppState, NativeModules, Platform } from 'react-native';
 import type { OperationalSchedule } from '@/src/types/app';
 
+type BackgroundLocationCredentialState = {
+  token: string;
+  refreshToken: string;
+  refreshRequestId: string | null;
+};
+
 type ManeCombLocationModule = {
   startService: (
     apiUrl: string,
@@ -16,6 +22,9 @@ type ManeCombLocationModule = {
   stopService: () => Promise<boolean>;
   hardStopService: () => Promise<boolean>;
   getServiceStatus: () => Promise<BackgroundLocationServiceStatus>;
+  getCredentialState: () => Promise<BackgroundLocationCredentialState | null>;
+  setCredentials: (token: string, refreshToken: string) => Promise<boolean>;
+  setRefreshRequestId: (refreshRequestId: string | null) => Promise<boolean>;
 };
 
 export type BackgroundLocationServiceStatus = {
@@ -147,8 +156,6 @@ function reconcileBackgroundLocationService() {
       return stopped;
     }
 
-    // React captures while the app is active. Keep the canonical intent prepared,
-    // but do not start a second native listener until React yields ownership.
     if (AppState.currentState === 'active') {
       return true;
     }
@@ -204,19 +211,11 @@ export function releaseBackgroundLocationServiceAsync(
   return reconcileBackgroundLocationService();
 }
 
-/**
- * Soft reset used by normal foreground/background handoff. Android is allowed
- * to flush the current user's queued packets before clearing persisted config.
- */
 export async function resetBackgroundLocationServiceAsync() {
   ownerConfig = null;
   return reconcileBackgroundLocationService();
 }
 
-/**
- * Session boundary reset. No packet, credential or owner from the previous user
- * may survive logout or an invalidated session.
- */
 export function hardResetBackgroundLocationServiceAsync() {
   ownerConfig = null;
   appliedConfig = null;
@@ -229,6 +228,26 @@ export function hardResetBackgroundLocationServiceAsync() {
     appliedConfig = null;
     return stopped;
   });
+}
+
+export async function getBackgroundLocationCredentialStateAsync(): Promise<BackgroundLocationCredentialState | null> {
+  if (!NativeLocation) return null;
+  return NativeLocation.getCredentialState().catch(() => null);
+}
+
+export async function setBackgroundLocationCredentialsAsync(token: string, refreshToken: string) {
+  if (!NativeLocation || !token.trim() || !refreshToken.trim()) return false;
+  const updated = await NativeLocation.setCredentials(token, refreshToken).catch(() => false);
+  if (updated) {
+    if (ownerConfig) ownerConfig = { ...ownerConfig, token, refreshToken };
+    if (appliedConfig) appliedConfig = { ...appliedConfig, token, refreshToken };
+  }
+  return updated;
+}
+
+export async function setBackgroundLocationRefreshRequestIdAsync(refreshRequestId: string | null) {
+  if (!NativeLocation) return false;
+  return NativeLocation.setRefreshRequestId(refreshRequestId).catch(() => false);
 }
 
 export async function getBackgroundLocationServiceStatusAsync(): Promise<BackgroundLocationServiceStatus> {
