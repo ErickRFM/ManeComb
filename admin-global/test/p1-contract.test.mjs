@@ -44,7 +44,14 @@ assert.match(authStore, /latest\.refreshToken !== current\.refreshToken/);
 assert.match(authStore, /authEpoch \+= 1/);
 assert.match(authStore, /isAuthoritativePlatformAuthError/);
 assert.match(authStore, /isTransientPlatformApiError/);
-assert.match(authStore, /Una caída de\s*red no debe consumir refresh tokens/);
+const refreshSessionIndex = authStore.indexOf('refreshSession: async () =>');
+const refreshSessionEnd = authStore.indexOf('logout: async () =>', refreshSessionIndex);
+const refreshSessionBlock = authStore.slice(refreshSessionIndex, refreshSessionEnd);
+assert.match(
+  refreshSessionBlock,
+  /isAuthoritativePlatformAuthError\(error\)[\s\S]*await get\(\)\.renewSession\(\)/,
+  'Refresh de sesión sólo debe consumir refresh tras un rechazo autenticador autoritativo.'
+);
 const bootstrapIndex = authStore.indexOf('bootstrap: async () =>');
 const transientIndex = authStore.indexOf('if (!isAuthoritativePlatformAuthError(error))', bootstrapIndex);
 const transientClearIndex = authStore.indexOf('clearPersistedSession();', transientIndex);
