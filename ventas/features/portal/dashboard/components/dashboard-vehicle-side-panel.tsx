@@ -70,13 +70,20 @@ export function VehicleSidePanel({
   const currentUser = useAppStore((state) => state.user);
   const canChangeDriver = hasPortalPermission(currentUser, 'users');
   const effectiveDriverSelectorOpen = canChangeDriver && driverSelectorOpen;
-  const session = activeSession || latestSession;
+  // Este panel describe el estado ACTUAL. `latestSession` solo sirve para
+  // etiquetar informacion historica; nunca reemplaza una jornada activa.
+  const session = activeSession;
   const activeDriver = getActiveDriver(users, vehicle, operationalUnit);
   const assignedDrivers = getAssignedDrivers(users, vehicle, activeSession);
   const routeInfo = getRouteInfo(vehicle, session);
   const journeyState = getJourneyState(operationalUnit, session);
   const progress = getRouteProgressPercent(operationalUnit, session);
   const alerts = getOperationalAlerts(operationalUnit, session).filter((alert) => alert.label !== journeyState.label);
+  const eventsTitle = activeSession
+    ? 'Eventos recientes'
+    : latestSession
+      ? 'Eventos de la última jornada'
+      : 'Eventos recientes';
   return (
     <View style={styles.sidePanel}>
       <View style={styles.sideHeader}>
@@ -151,7 +158,7 @@ export function VehicleSidePanel({
       ) : null}
       {session ? (
         <View style={[styles.metricGrid, styles.sideMetricGrid]}>
-          <Fact label="Tiempo activo" value={activeSession ? formatDuration((Date.now() - getTimestamp(activeSession.startedAt)) / 1000) : 'Sin jornada activa'} />
+          <Fact label="Tiempo activo" value={formatDuration((Date.now() - getTimestamp(session.startedAt)) / 1000)} />
           <Fact label="Distancia" value={formatDistance(session.totalDistance)} />
           <Fact label="Vueltas" value={String(session.completedLaps ?? 0)} />
           <Fact label="Checkpoints" value={String(session.completedCheckpoints ?? 0)} />
@@ -159,7 +166,7 @@ export function VehicleSidePanel({
           <Fact label="Productividad" value={formatPercent(session.metrics?.effectiveTimePercent)} />
         </View>
       ) : null}
-      <Text style={styles.sideSectionTitle}>Eventos recientes</Text>
+      <Text style={styles.sideSectionTitle}>{eventsTitle}</Text>
       {recentEvents.length ? (
         <View style={styles.recentTimeline}>
           {recentEvents.slice(0, 3).map((event) => (
