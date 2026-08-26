@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "a6d67d580159ec0ce09ae30ed5b30322e3dc39bf",
+    "commit": "8cbf079a65a6f4ca7e39b5211a10558234cd59f0",
     "capturedAt": "2026-08-25",
-    "phase": "post-auth-resilience-pre-realtime-closeout"
+    "phase": "post-realtime-closeout-communication-boundary"
   },
   "products": [
     {
@@ -462,6 +462,7 @@
       "owner": "communication-service",
       "status": "partial",
       "sourcePaths": [
+        "communication-service/package.json",
         "communication-service/src",
         "backend/modules/communication",
         "backend/src/sockets",
@@ -710,16 +711,6 @@
     }
   ],
   "knownDivergences": [
-    {
-      "id": "COMMUNICATION-HYBRID-BOUNDARY",
-      "severity": "P1",
-      "phase": 7,
-      "summary": "Communication Service is tested independently but installed by the backend; its package/runtime boundary remains hybrid until the public package contract is explicit.",
-      "sourcePaths": [
-        "backend/package.json",
-        "communication-service/package.json"
-      ]
-    },
     {
       "id": "IOS-NATIVE-ARTIFACT-PENDING",
       "severity": "P2",
