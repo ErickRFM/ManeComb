@@ -1,4 +1,4 @@
-const comm = require("../../../communication-service/src");
+const comm = require("../../../communication-service");
 const logger = require("./communication.logger");
 
 module.exports = {
