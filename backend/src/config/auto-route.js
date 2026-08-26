@@ -32,16 +32,20 @@ module.exports = Object.freeze({
   minDurationSeconds: positiveNumber("AUTO_ROUTE_MIN_DURATION_SECONDS", 120),
   minEvidenceCount: Math.max(2, Math.round(positiveNumber("AUTO_ROUTE_MIN_EVIDENCE_COUNT", 3))),
   /**
-   * Dias operativos DISTINTOS que debe abarcar la evidencia.
+   * V2 aprende el corredor completo de una combi que repite vueltas. Una vuelta
+   * sigue siendo una evidencia terminada e independiente; la tercera evidencia
+   * equivalente ya es suficiente para ofrecer el candidato al administrador,
+   * aunque las tres ocurran dentro del mismo dia operativo.
    *
-   * "Uso habitual" es un hecho temporal, no solo un conteo. Tres vueltas la misma
-   * manana son un servicio; tres vueltas en dos dias distintos son un patron. Sin
-   * este minimo, un unico turno cerraba la evidencia y proponia como ruta oficial
-   * lo que podia ser un desvio puntual.
-   *
-   * El dia se calcula en la zona horaria de operacion (`utils/service-date.js`),
-   * no en UTC: un turno nocturno no puede partirse en dos dias por el cambio de
-   * fecha del meridiano.
+   * La proteccion no depende solo del tiempo: antes de llegar aqui cada vuelta
+   * pasa filtros de GPS, duracion, distancia, velocidad y gaps, y despues debe
+   * coincidir por extremos, direccion, longitud y solape de corredor.
+   */
+  fullRouteMinDistinctServiceDays: 1,
+  /**
+   * V3 aprende un DESVIO de una ruta oficial, no una vuelta completa. Ese caso
+   * conserva evidencia temporal en dias operativos distintos para no convertir
+   * una obra, cierre o desvio puntual del mismo turno en una mejora de segmento.
    */
   minDistinctServiceDays: Math.max(1, Math.round(positiveNumber("AUTO_ROUTE_MIN_DISTINCT_SERVICE_DAYS", 2))),
   minPointCount: Math.max(3, Math.round(positiveNumber("AUTO_ROUTE_MIN_POINT_COUNT", 10))),

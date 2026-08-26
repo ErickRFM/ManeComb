@@ -1,11 +1,13 @@
 process.env.AUTO_ROUTE_LEARNING_ENABLED = "true";
 process.env.AUTO_ROUTE_REVIEW_ENABLED = "true";
 process.env.AUTO_ROUTE_ALGORITHM_VERSION = "v2";
+process.env.AUTO_ROUTE_MIN_DISTINCT_SERVICE_DAYS = "2";
 
 const assert = require("node:assert/strict");
 const http = require("node:http");
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
+const autoRouteConfig = require("../src/config/auto-route");
 const { compareCorridors, processCompletedRouteSession } = require("../src/services/auto-route-learning");
 const { signToken } = require("../src/utils/jwt");
 
@@ -84,47 +86,56 @@ async function createHttpContext(store) {
   };
 }
 
-// --- Uso habitual: tres vueltas del mismo turno NO son un patron -----------
-// Antes bastaba `evidenceCount >= minEvidenceCount`, asi que un solo dia de
-// operacion cerraba la evidencia y ManeComb proponia como ruta oficial lo que
-// podia ser un desvio puntual.
-async function testSameDayEvidenceStaysCollecting() {
+// --- Operacion de combi: tercera vuelta equivalente -> revision admin -------
+// Una ruta completa repetida varias veces en el mismo turno si representa el
+// patron operativo que queremos descubrir. La proteccion contra falsos positivos
+// permanece en la elegibilidad de cada sesion y en la comparacion de corredor.
+async function testThirdSameDayLoopBecomesReviewCandidate() {
+  assert.equal(autoRouteConfig.fullRouteMinDistinctServiceDays, 1);
+  assert.equal(
+    autoRouteConfig.minDistinctServiceDays,
+    2,
+    "V3 de desvios conserva evidencia temporal independiente"
+  );
+
   const store = createEmbeddedStore();
   await processSeries(store, [
     { index: 1, dayIndex: 5, hour: 6 },
-    { index: 2, dayIndex: 5, hour: 10, path: noisyPath(2) },
-    { index: 3, dayIndex: 5, hour: 16, path: noisyPath(3) }
+    { index: 2, dayIndex: 5, hour: 10, path: noisyPath(2) }
   ]);
 
   let candidates = await store.listLearnedRouteCandidates({ organizationId: "manecomb-demo" });
   assert.equal(candidates.length, 1);
-  assert.equal(candidates[0].evidenceCount, 3, "las tres vueltas si son evidencia");
-  assert.equal(candidates[0].distinctServiceDays, 1, "pero pertenecen a un solo dia operativo");
+  assert.equal(candidates[0].evidenceCount, 2);
+  assert.equal(candidates[0].distinctServiceDays, 1);
+  assert.equal(candidates[0].status, "COLLECTING", "dos vueltas aun no bastan");
+  assert.ok(candidates[0].confidence < 1);
+
+  await processSeries(store, [
+    { index: 3, dayIndex: 5, hour: 16, path: noisyPath(3) }
+  ]);
+
+  candidates = await store.listLearnedRouteCandidates({ organizationId: "manecomb-demo" });
+  assert.equal(candidates[0].evidenceCount, 3, "la tercera vuelta completa la evidencia");
+  assert.equal(candidates[0].distinctServiceDays, 1, "las tres vueltas pueden ocurrir en el mismo dia operativo");
   assert.equal(
     candidates[0].status,
-    "COLLECTING",
-    "tres vueltas el mismo dia no demuestran un recorrido habitual"
+    "READY_FOR_REVIEW",
+    "la tercera vuelta equivalente debe ofrecer la ruta al administrador"
   );
-  assert.ok(candidates[0].confidence < 1, "la confianza no puede afirmar evidencia completa");
-
-  // Una cuarta vuelta en OTRO dia completa el patron.
-  await processSeries(store, [{ index: 4, dayIndex: 6, hour: 7, path: noisyPath(4) }]);
-  candidates = await store.listLearnedRouteCandidates({ organizationId: "manecomb-demo" });
-  assert.equal(candidates[0].distinctServiceDays, 2);
-  assert.equal(candidates[0].status, "READY_FOR_REVIEW", "dos dias distintos si cierran la evidencia");
   assert.equal(candidates[0].confidence, 1);
-  assert.ok(candidates[0].firstSeenAt, "la evidencia registra cuando se vio por primera vez");
-  assert.ok(candidates[0].lastSeenAt, "y cuando se vio por ultima vez");
+  assert.ok(candidates[0].firstSeenAt);
+  assert.ok(candidates[0].lastSeenAt);
   assert.ok(
     new Date(candidates[0].firstSeenAt).getTime() < new Date(candidates[0].lastSeenAt).getTime(),
-    "el rango observado debe abarcar varios dias"
+    "las tres evidencias deben conservar su ventana observada"
   );
 
-  console.log("ok - la evidencia exige recorridos repetidos en dias operativos distintos");
+  console.log("ok - tercera vuelta equivalente del mismo dia habilita revision admin");
 }
 
 async function main() {
-  await testSameDayEvidenceStaysCollecting();
+  await testThirdSameDayLoopBecomesReviewCandidate();
   const store = createEmbeddedStore();
   const first = await processSeries(store, [{ index: 1 }]);
   assert.equal(first[0].result.eligible, true);

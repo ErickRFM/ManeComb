@@ -287,7 +287,8 @@ async function processCompletedRouteSession(store, sessionId) {
 
     // V2 remains the authority for free/recording journeys and for deployments
     // where V3 is still dark. Its identifiers and historical candidates are not
-    // reinterpreted.
+    // reinterpreted. Repeated full loops mature by evidence count, so a third
+    // equivalent finished loop may be offered for admin review on the same day.
     const claim = await store.claimAutoRouteProcessing({
       sessionId,
       organizationId: session.organizationId,
@@ -342,7 +343,7 @@ async function processCompletedRouteSession(store, sessionId) {
       serviceDate: toServiceDate(session.startedAt || positions[0].timestamp),
       observedAt: new Date(session.startedAt || positions[0].timestamp).toISOString(),
       minimumEvidenceCount: config.minEvidenceCount,
-      minimumDistinctServiceDays: config.minDistinctServiceDays
+      minimumDistinctServiceDays: config.fullRouteMinDistinctServiceDays
     });
     await store.completeAutoRouteProcessing(claim.id, { status: "COMPLETED", candidateId: candidate.id });
     incrementMetric("auto_route_evidence_accepted", 1);
