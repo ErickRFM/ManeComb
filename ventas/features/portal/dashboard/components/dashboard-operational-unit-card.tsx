@@ -8,12 +8,15 @@ import { getVehicleStatus, getRouteInfo } from '../dashboard.utils';
 export function OperationalUnitCard({
   active,
   activeSession,
+  latestSession: _latestSession,
   onOpen,
   operationalUnit,
   vehicle,
 }: {
   active: boolean;
   activeSession: RouteSession | null;
+  /** Compatibilidad de llamada: historico no participa en la proyeccion actual. */
+  latestSession: RouteSession | null;
   onOpen: () => void;
   operationalUnit?: OperationalUnitSnapshot;
   vehicle: Vehicle;
