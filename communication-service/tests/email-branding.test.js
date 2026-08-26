@@ -22,7 +22,12 @@ assert.match(canonicalComponents, /width="200"/);
 assert.match(canonicalComponents, /border-radius: 10px/);
 assert.match(
   backendAdapter,
-  /require\(["']\.\.\/\.\.\/\.\.\/communication-service\/src["']\)/,
-  'Backend debe consumir la plantilla canónica a través de Communication Service, no una copia embebida'
+  /require\(["']\.\.\/\.\.\/\.\.\/communication-service["']\)/,
+  'Backend debe consumir la autoridad canónica a través del entrypoint público de Communication Service'
+);
+assert.doesNotMatch(
+  backendAdapter,
+  /communication-service\/src/,
+  'Backend no debe depender de internos src de Communication Service'
 );
 console.log('ok - correos usan un solo wordmark y una sola autoridad de templates');
