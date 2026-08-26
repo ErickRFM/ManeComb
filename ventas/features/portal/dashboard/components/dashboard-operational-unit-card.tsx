@@ -8,21 +8,23 @@ import { getVehicleStatus, getRouteInfo } from '../dashboard.utils';
 export function OperationalUnitCard({
   active,
   activeSession,
-  latestSession,
+  latestSession: _latestSession,
   onOpen,
   operationalUnit,
   vehicle,
 }: {
   active: boolean;
   activeSession: RouteSession | null;
+  /** Compatibilidad de llamada: historico no participa en la proyeccion actual. */
   latestSession: RouteSession | null;
   onOpen: () => void;
   operationalUnit?: OperationalUnitSnapshot;
   vehicle: Vehicle;
 }) {
-  const session = activeSession || latestSession;
   const status = getVehicleStatus(vehicle, operationalUnit);
-  const routeInfo = getRouteInfo(vehicle, session);
+  // La tarjeta es una proyeccion ACTUAL. Una jornada terminada pertenece al
+  // historial y nunca vuelve a entrar aqui como fallback de autoridad.
+  const routeInfo = getRouteInfo(vehicle, activeSession);
   // Presenta la taxonomia canonica del backend. Una unidad que jamas reporto no
   // esta averiada: esta esperando su primer paquete.
   const connectionState = operationalUnit?.gps.connectionState || 'never_reported';
