@@ -5,10 +5,15 @@ const connectionManager = require("../connection");
 const history = require("../history");
 
 let providerReady = false;
+let outboxRecoveryReady = false;
 let lastOperationalError = null;
 
 function setProviderReady(value) {
   providerReady = Boolean(value);
+}
+
+function setOutboxRecoveryReady(value) {
+  outboxRecoveryReady = Boolean(value);
 }
 
 function setLastOperationalError(error) {
@@ -32,12 +37,11 @@ function getReadiness() {
       ? historyState.durable
       : providerReady && historyState.durable && queueFunctional
   );
-  // Mongo now owns executable pending work. Redis persistence remains useful,
-  // but is no longer required for end-to-end durability because BullMQ can be
-  // reconstructed from the durable outbox using deterministic job IDs.
-  const mongoOutboxRecovery = Boolean(historyState.durable);
+  // Redis persistence remains a valid durability mechanism. When it is absent,
+  // Mongo outbox may replace it only after the runtime actually started the
+  // recovery reaper; code presence alone must never make readiness green.
   const productionDurability = historyState.durable && (
-    !queueState.enabled || queueState.durableAcrossRestart || mongoOutboxRecovery
+    !queueState.enabled || queueState.durableAcrossRestart || outboxRecoveryReady
   );
   let status = "ready";
   if (!cfg.email.enabled) status = "disabled";
@@ -53,7 +57,7 @@ function getReadiness() {
     functional,
     productionDurability,
     durable: productionDurability,
-    outboxRecovery: mongoOutboxRecovery,
+    outboxRecovery: outboxRecoveryReady,
     queue: queueState,
     history: historyState,
     lastError: lastOperationalError,
@@ -75,5 +79,6 @@ module.exports = {
   getReadiness,
   getLiveness,
   setProviderReady,
+  setOutboxRecoveryReady,
   setLastOperationalError
 };
