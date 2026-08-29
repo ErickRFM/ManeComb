@@ -31,17 +31,31 @@ function serializeMutation<T>(mutation: () => Promise<T>): Promise<T> {
 }
 
 function getFormValue(formData: FormData, name: string): any {
-  const getter = (formData as any)?.get;
-  return typeof getter === 'function' ? getter.call(formData, name) : null;
+  const candidate = formData as any;
+  const getter = candidate?.get;
+  if (typeof getter === 'function') {
+    return getter.call(formData, name);
+  }
+
+  // React Native's Android FormData runtime keeps entries in `_parts`.
+  // Do not assume the browser FormData API is present on-device.
+  const parts = Array.isArray(candidate?._parts) ? candidate._parts : [];
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (Array.isArray(part) && part[0] === name) {
+      return part[1] ?? null;
+    }
+  }
+
+  return null;
 }
 
 function normalizeFileIdentity(file: any) {
   const uri = String(file?.uri || '').trim();
   const type = String(file?.type || '').trim().toLowerCase();
 
-  // Android conserva la misma URI en el intento inmediato y en pending-sync.
-  // No usamos el nombre cuando existe URI porque la cola puede completarlo al
-  // reconstruir el FormData tras un corte de red.
+  // Android conserva la misma URI entre el intento inmediato y pending-sync.
+  // La URI es más estable que un nombre generado al reconstruir el FormData.
   if (uri) {
     return { uri, type };
   }
