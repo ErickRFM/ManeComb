@@ -11,13 +11,15 @@ class ResendProvider extends BaseProvider {
     this.replyTo = config.replyTo || "";
   }
 
-  async send({ to, from, subject, html, text }) {
+  async send({ to, from, subject, html, text, idempotencyKey }) {
     try {
+      const safeIdempotencyKey = String(idempotencyKey || "").trim();
       const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          ...(safeIdempotencyKey ? { "Idempotency-Key": safeIdempotencyKey.slice(0, 256) } : {})
         },
         body: JSON.stringify({
           from: from || `${this.fromName} <${this.fromEmail}>`,
