@@ -159,7 +159,17 @@ async function sendEmail({ to, recipient, template, eventType, tenantId, organiz
     : deliveryEngine.sendViaQueue(input);
 }
 
-async function sendProvider({ to, template, data, from, subject, html, text, provider: providerOpt }) {
+async function sendProvider({
+  to,
+  template,
+  data,
+  from,
+  subject,
+  html,
+  text,
+  provider: providerOpt,
+  providerIdempotencyKey
+}) {
   const startTime = Date.now();
   const targetProvider = providerOpt || config.getConfig().provider;
 
@@ -172,7 +182,8 @@ async function sendProvider({ to, template, data, from, subject, html, text, pro
           from: from || config.getConfig().defaultFrom,
           subject,
           html,
-          text
+          text,
+          idempotencyKey: providerIdempotencyKey
         }),
         timeout.getTimeoutMs(0, 30000),
         `send:${targetProvider}`
