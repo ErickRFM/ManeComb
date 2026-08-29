@@ -21,9 +21,36 @@ const deliveryResults = require("./delivery/result");
 const security = require("./security");
 const { PRIORITY, TEMPLATE_PRIORITY, QUEUE_NAMES } = require("./core/types");
 
+const OUTBOX_REAPER_INTERVAL_MS = 60000;
 let provider = null;
+let outboxReaperTimer = null;
+
+function stopOutboxReaper() {
+  if (outboxReaperTimer) {
+    clearInterval(outboxReaperTimer);
+    outboxReaperTimer = null;
+  }
+}
+
+function startOutboxReaper() {
+  stopOutboxReaper();
+  const readiness = history.getReadiness();
+  const queueState = queue.getReadiness();
+  if (!readiness.durableOutbox || !queueState.enabled) return false;
+
+  outboxReaperTimer = setInterval(() => {
+    deliveryEngine.reconcileOutbox().catch((error) => {
+      logger.logError("EmailOutboxReaperFailed", error, {
+        provider: config.getConfig().provider
+      });
+    });
+  }, OUTBOX_REAPER_INTERVAL_MS);
+  outboxReaperTimer.unref?.();
+  return true;
+}
 
 function configure(cfg) {
+  stopOutboxReaper();
   config.configure(cfg);
   history.configurePersistence(cfg.persistence);
 
@@ -100,6 +127,14 @@ function getReadiness() {
 async function initializePersistence() {
   await history.refreshReadiness();
   await queue.initialize();
+  // Startup repair handles Redis loss/restart immediately. Deterministic jobId
+  // and the Mongo lease make this safe across multiple API instances.
+  await deliveryEngine.reconcileOutbox({ staleMs: 1000 }).catch((error) => {
+    logger.logError("EmailOutboxStartupRecoveryFailed", error, {
+      provider: config.getConfig().provider
+    });
+  });
+  startOutboxReaper();
   return getReadiness();
 }
 
@@ -120,6 +155,8 @@ function getRuntimeDiagnostics() {
     maxmemoryPolicy: readiness.queue.maxmemoryPolicy,
     historyMode: readiness.history.mode,
     idempotencyIndexVerified: readiness.history.idempotencyIndex,
+    durableOutbox: readiness.history.durableOutbox,
+    outboxReaperActive: Boolean(outboxReaperTimer),
     productionDurability: readiness.productionDurability
   };
 }
