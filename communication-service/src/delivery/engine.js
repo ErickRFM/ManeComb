@@ -76,7 +76,10 @@ class DeliveryEngine {
         to: input.recipient?.email || input.to,
         subject: input.subject || rendered.subject,
         html: rendered.html,
-        text: rendered.text
+        text: rendered.text,
+        // The durable Mongo delivery is the end-to-end provider identity. BullMQ
+        // retries and direct retries must never mint a new provider key.
+        providerIdempotencyKey: deliveryId
       });
       if (!result.success) throw new Error(result.error || "Provider send failed");
     } catch (error) {
