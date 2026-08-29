@@ -121,16 +121,15 @@ async function main() {
 
   // En CI no hay Mongo conectado ni credenciales Cloudinary, por lo que este
   // ejercicio usa el driver local real y fija que un asset redundante se puede
-  // retirar mediante la misma frontera de storage que lo creó.
+  // retirar mediante la misma frontera de storage que lo creó. No abrimos un
+  // ReadStream antes de borrar: esa sería una carrera del propio test, no parte
+  // del contrato de cleanup.
   const uploadedAsset = await uploadChatMediaAsset({
     buffer: Buffer.from("manecomb-media-idempotency"),
     mimetype: "image/png",
     originalname: "media-idempotency.png"
   });
   assert.equal(uploadedAsset.storageType, "local");
-  const storedAsset = await getChatMediaAsset(uploadedAsset.storageKey);
-  assert.ok(storedAsset, "El asset local debe existir antes del cleanup");
-  storedAsset.stream?.destroy?.();
   assert.equal(await deleteChatMediaAsset(uploadedAsset), true);
   assert.equal(await getChatMediaAsset(uploadedAsset.storageKey), null);
 
