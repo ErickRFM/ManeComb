@@ -36,7 +36,7 @@ function startOutboxReaper() {
   stopOutboxReaper();
   const readiness = history.getReadiness();
   const queueState = queue.getReadiness();
-  if (!readiness.durableOutbox || !queueState.enabled) return false;
+  if (!readiness.durable || !queueState.enabled) return false;
 
   outboxReaperTimer = setInterval(() => {
     deliveryEngine.reconcileOutbox().catch((error) => {
@@ -155,7 +155,7 @@ function getRuntimeDiagnostics() {
     maxmemoryPolicy: readiness.queue.maxmemoryPolicy,
     historyMode: readiness.history.mode,
     idempotencyIndexVerified: readiness.history.idempotencyIndex,
-    durableOutbox: readiness.history.durableOutbox,
+    durableOutbox: readiness.history.durable,
     outboxReaperActive: Boolean(outboxReaperTimer),
     productionDurability: readiness.productionDurability
   };
