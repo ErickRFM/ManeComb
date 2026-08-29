@@ -30,6 +30,7 @@ function stopOutboxReaper() {
     clearInterval(outboxReaperTimer);
     outboxReaperTimer = null;
   }
+  health.setOutboxRecoveryReady(false);
 }
 
 function startOutboxReaper() {
@@ -46,6 +47,7 @@ function startOutboxReaper() {
     });
   }, OUTBOX_REAPER_INTERVAL_MS);
   outboxReaperTimer.unref?.();
+  health.setOutboxRecoveryReady(true);
   return true;
 }
 
@@ -157,6 +159,7 @@ function getRuntimeDiagnostics() {
     idempotencyIndexVerified: readiness.history.idempotencyIndex,
     durableOutbox: readiness.history.durable,
     outboxReaperActive: Boolean(outboxReaperTimer),
+    outboxRecoveryReady: readiness.outboxRecovery,
     productionDurability: readiness.productionDurability
   };
 }
