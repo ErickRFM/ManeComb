@@ -7,6 +7,11 @@ let indexState = "unavailable";
 let HistoryModel = null;
 let memoryStore = [];
 
+const SAFE_REQUEUE_STATUSES = ["created", "queued"];
+const PROVIDER_RESULT_UNKNOWN_STATUS = "provider_result_unknown";
+const AUTO_FINAL_STATUSES = new Set(["sent", "skipped", "dry_run", PROVIDER_RESULT_UNKNOWN_STATUS]);
+const DEFAULT_PROVIDER_REPLAY_WINDOW_MS = 23 * 60 * 60 * 1000;
+
 function configurePersistence(options = {}) {
   mongoose = options.mongoose || null;
   HistoryModel = null;
@@ -33,7 +38,16 @@ function getModel() {
       provider: { type: String, default: null },
       status: {
         type: String,
-        enum: ["created", "queued", "processing", "sent", "failed", "skipped", "dry_run"],
+        enum: [
+          "created",
+          "queued",
+          "processing",
+          "sent",
+          "failed",
+          "skipped",
+          "dry_run",
+          PROVIDER_RESULT_UNKNOWN_STATUS
+        ],
         required: true,
         index: true
       },
@@ -48,6 +62,13 @@ function getModel() {
       processingAt: { type: Date, default: null },
       sentAt: { type: Date, default: null },
       failedAt: { type: Date, default: null },
+      finalizedAt: { type: Date, default: null, index: true },
+      recoveryClaimedAt: { type: Date, default: null },
+      recoveryLeaseUntil: { type: Date, default: null, index: true },
+      recoveryCount: { type: Number, default: 0 },
+      // Executable payload is intentionally internal and temporary. Normal
+      // history/admin queries never select it; terminal delivery removes it.
+      outboxPayload: { type: mongoose.Schema.Types.Mixed, default: null, select: false },
       createdAt: { type: Date, default: Date.now, index: true },
       updatedAt: { type: Date, default: Date.now }
     }, { collection: "communication_history", versionKey: false, strict: false, autoIndex: false });
@@ -64,6 +85,7 @@ function getModel() {
       }
     );
     schema.index({ status: 1, createdAt: -1 });
+    schema.index({ finalizedAt: 1, status: 1, updatedAt: 1, recoveryLeaseUntil: 1 });
     HistoryModel = mongoose.models.CommunicationHistory || mongoose.model("CommunicationHistory", schema);
   }
   return HistoryModel;
@@ -83,7 +105,25 @@ async function refreshReadiness() {
   return getReadiness();
 }
 
-function buildDocument(input) {
+function buildOutboxPayload(input) {
+  const email = input.recipient?.email || input.to;
+  return {
+    recipient: { email },
+    template: input.template,
+    eventType: input.eventType,
+    tenantScope: input.tenantScope,
+    tenantId: input.tenantId || null,
+    organizationId: input.organizationId || null,
+    idempotencyKey: input.idempotencyKey,
+    data: input.data || {},
+    priority: input.priority || 1,
+    from: input.from || null,
+    subject: input.subject || null,
+    provider: input.provider || null
+  };
+}
+
+function buildDocument(input, options = {}) {
   const email = input.recipient?.email || input.to;
   const deliveryId = input.deliveryId || createDeliveryId();
   const now = new Date();
@@ -107,6 +147,11 @@ function buildDocument(input) {
     errorCategory: null,
     errorCode: null,
     errorMessage: null,
+    finalizedAt: null,
+    recoveryClaimedAt: null,
+    recoveryLeaseUntil: null,
+    recoveryCount: 0,
+    ...(options.includeOutbox ? { outboxPayload: buildOutboxPayload(input) } : {}),
     createdAt: now,
     updatedAt: now
   };
@@ -126,12 +171,12 @@ async function claim(input) {
       error.code = "EMAIL_IDEMPOTENCY_INDEX_MISSING";
       throw error;
     }
-    const proposed = buildDocument(input);
+    const proposed = buildDocument(input, { includeOutbox: true });
     try {
       const value = await Model.findOneAndUpdate(
         identity,
         { $setOnInsert: proposed },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: "after" }
       );
       const delivery = value.toObject ? value.toObject() : value;
       return { delivery, created: delivery.deliveryId === proposed.deliveryId, durable: true };
@@ -156,18 +201,22 @@ async function claim(input) {
     entry.idempotencyKey === identity.idempotencyKey
   );
   if (existing) return { delivery: existing, created: false, durable: false };
-  const delivery = buildDocument(input);
+  // The non-durable memory fallback deliberately never keeps raw recipient/data
+  // beyond the caller input. It is not an outbox authority.
+  const delivery = buildDocument(input, { includeOutbox: false });
   memoryStore.push(delivery);
   return { delivery, created: true, durable: false };
 }
 
-async function updateDelivery(deliveryId, updates) {
-  const now = new Date();
+function buildSafeUpdates(updates, now = new Date()) {
   const safe = {
     ...updates,
     updatedAt: now
   };
   delete safe.error;
+  delete safe.outboxPayload;
+  delete safe.recoveryLeaseUntil;
+  delete safe.recoveryClaimedAt;
   if (updates.errorMessage || updates.error) {
     safe.errorMessage = sanitizeProviderError(updates.errorMessage || updates.error);
   }
@@ -175,9 +224,51 @@ async function updateDelivery(deliveryId, updates) {
   if (safe.status === "processing") safe.processingAt = now;
   if (safe.status === "sent") safe.sentAt = now;
   if (safe.status === "failed") safe.failedAt = now;
+  return safe;
+}
+
+async function updateDelivery(deliveryId, updates) {
+  const now = new Date();
+  const safe = buildSafeUpdates(updates, now);
   const Model = getModel();
   if (Model) {
-    await Model.updateOne({ deliveryId }, { $set: safe });
+    const operation = { $set: safe };
+    if (AUTO_FINAL_STATUSES.has(safe.status)) {
+      operation.$set.finalizedAt = now;
+      operation.$unset = {
+        outboxPayload: 1,
+        recoveryLeaseUntil: 1,
+        recoveryClaimedAt: 1
+      };
+    }
+    await Model.updateOne({ deliveryId }, operation);
+    return Model.findOne({ deliveryId }).lean();
+  }
+  const entry = memoryStore.find((item) => item.deliveryId === deliveryId || item._id === deliveryId);
+  if (entry) {
+    Object.assign(entry, safe);
+    if (AUTO_FINAL_STATUSES.has(safe.status)) entry.finalizedAt = now;
+  }
+  return entry || null;
+}
+
+async function finalizeDelivery(deliveryId, updates = {}) {
+  const now = new Date();
+  const safe = buildSafeUpdates(updates, now);
+  safe.finalizedAt = now;
+  const Model = getModel();
+  if (Model) {
+    await Model.updateOne(
+      { deliveryId },
+      {
+        $set: safe,
+        $unset: {
+          outboxPayload: 1,
+          recoveryLeaseUntil: 1,
+          recoveryClaimedAt: 1
+        }
+      }
+    );
     return Model.findOne({ deliveryId }).lean();
   }
   const entry = memoryStore.find((item) => item.deliveryId === deliveryId || item._id === deliveryId);
@@ -189,6 +280,130 @@ async function getByDeliveryId(deliveryId) {
   const Model = getModel();
   if (Model) return Model.findOne({ deliveryId }).lean();
   return memoryStore.find((item) => item.deliveryId === deliveryId) || null;
+}
+
+async function getOutboxByDeliveryId(deliveryId) {
+  const Model = getModel();
+  if (!Model) return null;
+  return Model.findOne({ deliveryId, finalizedAt: null })
+    .select("+outboxPayload")
+    .lean();
+}
+
+async function quarantineUnsafeProviderResults(options = {}) {
+  const Model = getModel();
+  if (!Model) return 0;
+  const now = options.now instanceof Date ? options.now : new Date();
+  const staleMs = Math.max(1000, Number(options.staleMs) || 120000);
+  const replayWindowMs = Math.max(
+    staleMs,
+    Number(options.providerReplayWindowMs) || DEFAULT_PROVIDER_REPLAY_WINDOW_MS
+  );
+  const genericProviderCutoff = new Date(now.getTime() - staleMs);
+  const resendCutoff = new Date(now.getTime() - replayWindowMs);
+  const result = await Model.updateMany(
+    {
+      finalizedAt: null,
+      status: { $in: ["processing", "failed"] },
+      outboxPayload: { $exists: true, $ne: null },
+      $or: [
+        {
+          provider: "resend",
+          updatedAt: { $lt: resendCutoff }
+        },
+        {
+          provider: { $ne: "resend" },
+          updatedAt: { $lte: genericProviderCutoff }
+        }
+      ]
+    },
+    {
+      $set: {
+        status: PROVIDER_RESULT_UNKNOWN_STATUS,
+        finalizedAt: now,
+        updatedAt: now,
+        errorCategory: PROVIDER_RESULT_UNKNOWN_STATUS,
+        errorCode: "PROVIDER_RESULT_UNKNOWN",
+        errorMessage: "Provider result could not be proven safely; automatic retry suppressed"
+      },
+      $unset: {
+        outboxPayload: 1,
+        recoveryLeaseUntil: 1,
+        recoveryClaimedAt: 1
+      }
+    }
+  );
+  return Number(result.modifiedCount || 0);
+}
+
+async function claimRecoverableDelivery(options = {}) {
+  const Model = getModel();
+  if (!Model) return null;
+  const now = options.now instanceof Date ? options.now : new Date();
+  const staleBefore = options.staleBefore instanceof Date
+    ? options.staleBefore
+    : new Date(now.getTime() - Math.max(1, Number(options.staleMs) || 120000));
+  const leaseMs = Math.max(1000, Number(options.leaseMs) || 60000);
+  const replayWindowMs = Math.max(
+    1000,
+    Number(options.providerReplayWindowMs) || DEFAULT_PROVIDER_REPLAY_WINDOW_MS
+  );
+  const resendReplayAfter = new Date(now.getTime() - replayWindowMs);
+
+  return Model.findOneAndUpdate(
+    {
+      finalizedAt: null,
+      outboxPayload: { $exists: true, $ne: null },
+      $and: [
+        {
+          $or: [
+            {
+              status: { $in: SAFE_REQUEUE_STATUSES },
+              updatedAt: { $lte: staleBefore }
+            },
+            {
+              status: { $in: ["processing", "failed"] },
+              provider: "resend",
+              updatedAt: { $lte: staleBefore, $gte: resendReplayAfter }
+            }
+          ]
+        },
+        {
+          $or: [
+            { recoveryLeaseUntil: null },
+            { recoveryLeaseUntil: { $exists: false } },
+            { recoveryLeaseUntil: { $lte: now } }
+          ]
+        }
+      ]
+    },
+    {
+      $set: {
+        recoveryClaimedAt: now,
+        recoveryLeaseUntil: new Date(now.getTime() + leaseMs)
+      },
+      $inc: { recoveryCount: 1 }
+    },
+    { returnDocument: "after", sort: { updatedAt: 1 } }
+  ).select("+outboxPayload").lean();
+}
+
+async function releaseRecoveryLease(deliveryId, updates = {}, options = {}) {
+  const Model = getModel();
+  if (!Model) return null;
+  const referenceNow = options.now instanceof Date ? options.now : new Date();
+  const safe = buildSafeUpdates(updates, referenceNow);
+  await Model.updateOne(
+    { deliveryId },
+    {
+      $set: safe,
+      $unset: {
+        recoveryLeaseUntil: 1,
+        recoveryClaimedAt: 1
+      }
+    }
+  );
+  return Model.findOne({ deliveryId }).lean();
 }
 
 async function log(entry) {
@@ -236,6 +451,7 @@ async function getStats(filters = {}) {
     total: entries.length,
     sent: entries.filter((e) => e.status === "sent").length,
     failed: entries.filter((e) => e.status === "failed").length,
+    providerResultUnknown: entries.filter((e) => e.status === PROVIDER_RESULT_UNKNOWN_STATUS).length,
     bounced: entries.filter((e) => e.errorCategory === "bounce").length,
     avgDurationMs: null,
     totalAttempts: entries.reduce((sum, e) => sum + (e.attempts || 0), 0)
@@ -262,10 +478,17 @@ module.exports = {
   claim,
   updateDelivery,
   updateStatus,
+  finalizeDelivery,
   getByDeliveryId,
+  getOutboxByDeliveryId,
+  quarantineUnsafeProviderResults,
+  claimRecoverableDelivery,
+  releaseRecoveryLease,
   log,
   query,
   getStats,
   getReadiness,
-  resetMemoryStore
+  resetMemoryStore,
+  PROVIDER_RESULT_UNKNOWN_STATUS,
+  DEFAULT_PROVIDER_REPLAY_WINDOW_MS
 };
