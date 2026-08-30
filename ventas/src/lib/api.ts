@@ -24,6 +24,7 @@ import type {
 const DEFAULT_API_URL = 'http://localhost:5000/api';
 const REQUEST_TIMEOUT_MS = 20000;
 const PASSWORD_RECOVERY_TIMEOUT_MS = 80000;
+const TRANSIENT_REFRESH_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 function normalizeUrl(value: string | undefined, fallback: string) {
   const rawValue = String(value || fallback || '').trim();
@@ -97,6 +98,48 @@ type SessionRecoveryConfig = {
 let sessionRecoveryConfig: SessionRecoveryConfig | null = null;
 let refreshTokenPromise: Promise<string | null> | null = null;
 
+function createRefreshRequestId() {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `portal-refresh-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientRefreshError(error: unknown) {
+  if (!isAxiosError(error)) return false;
+  if (!error.response) return true;
+  return TRANSIENT_REFRESH_STATUSES.has(error.response.status);
+}
+
+async function refreshPortalSession(refreshToken: string) {
+  const refreshRequestId = createRefreshRequestId();
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await apiClient.post<AuthSessionPayload>(
+        '/auth/refresh',
+        { refreshToken, refreshRequestId },
+        { _skipAuthRefresh: true } as AuthRetryConfig
+      );
+      return response.data;
+    } catch (error) {
+      lastError = error;
+      if (attempt > 0 || !isTransientRefreshError(error)) throw error;
+      // The backend replay cache is keyed by predecessor + refreshRequestId.
+      // Reusing the same id turns a lost successful response into recovery of
+      // the exact successor instead of consuming a second refresh rotation.
+      await delay(250);
+    }
+  }
+
+  throw lastError;
+}
+
 export function configureApiSessionRecovery(config: SessionRecoveryConfig) {
   sessionRecoveryConfig = config;
 }
@@ -133,14 +176,10 @@ apiClient.interceptors.response.use(
         refreshTokenPromise = Promise.resolve(sessionRecoveryConfig?.getRefreshToken() || null)
           .then(async (refreshToken) => {
             if (!refreshToken || !sessionRecoveryConfig) return null;
-            const response = await apiClient.post<AuthSessionPayload>(
-              '/auth/refresh',
-              { refreshToken },
-              { _skipAuthRefresh: true } as AuthRetryConfig
-            );
-            setAuthToken(response.data.token);
-            await sessionRecoveryConfig.onTokenRefresh(response.data);
-            return response.data.token;
+            const refreshed = await refreshPortalSession(refreshToken);
+            setAuthToken(refreshed.token);
+            await sessionRecoveryConfig.onTokenRefresh(refreshed);
+            return refreshed.token;
           })
           .finally(() => {
             refreshTokenPromise = null;
