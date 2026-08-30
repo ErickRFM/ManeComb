@@ -3,6 +3,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { createEmbeddedStore } = require("../src/data/store");
 const {
+  deleteChatMediaAsset,
+  getChatMediaAsset,
+  uploadChatMediaAsset
+} = require("../src/services/chat-media");
+const {
   buildChatMessageId,
   normalizeClientMessageId
 } = require("../src/services/chat-message-idempotency");
@@ -24,6 +29,9 @@ async function main() {
   );
   assert.match(routes, /if \(!deduplicated\) emitConversationUpdate/);
   assert.match(routes, /if \(!deduplicated && recipientIds\.length\)/);
+  assert.match(routes, /function buildMultipartMessageId\(req, conversation\)/);
+  assert.match(routes, /deleteChatMediaAsset\(uploadedAsset\)/);
+  assert.match(routes, /res\.status\(deduplicated \? 200 : 201\)/);
   assert.match(mongo, /const existingMessage = await ChatMessageModel\.findById\(message\.id\)\.lean\(\);/);
   assert.match(mongo, /deduplicated: false/);
   assert.match(embedded, /requestedMessageId/);
@@ -79,7 +87,53 @@ async function main() {
   assert.equal(second.deduplicated, true);
   assert.equal(after.length, before.length + 1, "El mismo intento solo debe persistirse una vez");
   assert.equal(after.filter((entry) => entry.id === messageId).length, 1);
-  console.log("ok - chat idempotente persiste una vez y los replays no repiten efectos HTTP");
+
+  // El contrato determinista no es exclusivo de texto. Un retry multimedia con
+  // el mismo clientMessageId debe devolver el primer mensaje/asset y nunca
+  // reemplazarlo por el upload redundante del replay.
+  const mediaMessageId = buildChatMessageId({
+    organizationId: conversation.organizationId,
+    conversationId: conversation.id,
+    senderId: source.id,
+    clientMessageId: "durable-media-01"
+  });
+  const mediaFirst = await store.addMessage(conversation.id, source.id, {
+    kind: "image",
+    text: "Evidencia",
+    imageUrl: "/api/chat/media/local__first.png",
+    mimeType: "image/png",
+    messageId: mediaMessageId
+  });
+  const mediaReplay = await store.addMessage(conversation.id, source.id, {
+    kind: "image",
+    text: "Evidencia",
+    imageUrl: "/api/chat/media/local__redundant.png",
+    mimeType: "image/png",
+    messageId: mediaMessageId
+  });
+  const afterMedia = await store.getMessages(conversation.id, source.id);
+
+  assert.equal(mediaFirst.deduplicated, false);
+  assert.equal(mediaReplay.deduplicated, true);
+  assert.equal(mediaReplay.id, mediaMessageId);
+  assert.equal(mediaReplay.imageUrl, "/api/chat/media/local__first.png");
+  assert.equal(afterMedia.filter((entry) => entry.id === mediaMessageId).length, 1);
+
+  // En CI no hay Mongo conectado ni credenciales Cloudinary, por lo que este
+  // ejercicio usa el driver local real y fija que un asset redundante se puede
+  // retirar mediante la misma frontera de storage que lo creó. No abrimos un
+  // ReadStream antes de borrar: esa sería una carrera del propio test, no parte
+  // del contrato de cleanup.
+  const uploadedAsset = await uploadChatMediaAsset({
+    buffer: Buffer.from("manecomb-media-idempotency"),
+    mimetype: "image/png",
+    originalname: "media-idempotency.png"
+  });
+  assert.equal(uploadedAsset.storageType, "local");
+  assert.equal(await deleteChatMediaAsset(uploadedAsset), true);
+  assert.equal(await getChatMediaAsset(uploadedAsset.storageKey), null);
+
+  console.log("ok - chat texto/media persiste una vez, suprime replays y limpia assets redundantes");
 }
 
 main().catch((error) => {

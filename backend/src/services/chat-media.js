@@ -202,7 +202,8 @@ async function uploadToCloudinary(file) {
         resolve({
           fileUrl: buildMediaUrl(`${CLOUDINARY_PREFIX}${result.public_id}`),
           storageKey: `${CLOUDINARY_PREFIX}${result.public_id}`,
-          storageType: "cloudinary"
+          storageType: "cloudinary",
+          resourceType: result.resource_type || null
         });
       }
     );
@@ -268,6 +269,62 @@ function getMongoObjectId(storageKey) {
   }
 }
 
+function getLocalAbsolutePath(storageKey) {
+  const fileName = String(storageKey || "").replace(LOCAL_PREFIX, "").trim();
+  const absolutePath = path.resolve(uploadDirectory, fileName);
+  const safeRoot = `${uploadDirectory}${path.sep}`;
+
+  if (!absolutePath.startsWith(safeRoot)) {
+    throw new Error("storageKey invalido");
+  }
+
+  return absolutePath;
+}
+
+async function deleteChatMediaAsset(assetOrStorageKey) {
+  const descriptor = assetOrStorageKey && typeof assetOrStorageKey === "object"
+    ? assetOrStorageKey
+    : { storageKey: assetOrStorageKey };
+  const storageKey = String(descriptor.storageKey || "").trim();
+
+  if (!storageKey) return false;
+
+  if (storageKey.startsWith(LOCAL_PREFIX)) {
+    const absolutePath = getLocalAbsolutePath(storageKey);
+    try {
+      await fs.promises.unlink(absolutePath);
+      return true;
+    } catch (error) {
+      if (error?.code === "ENOENT") return true;
+      throw error;
+    }
+  }
+
+  if (storageKey.startsWith(MONGO_PREFIX)) {
+    if (!mongoose.connection?.db) return false;
+    try {
+      await ensureGridFsBucket().delete(getMongoObjectId(storageKey));
+      return true;
+    } catch (error) {
+      if (error?.code === "ENOENT") return true;
+      throw error;
+    }
+  }
+
+  if (storageKey.startsWith(CLOUDINARY_PREFIX)) {
+    ensureCloudinary();
+    const publicId = storageKey.replace(CLOUDINARY_PREFIX, "");
+    const result = await cloudinary.uploader.destroy(publicId, {
+      invalidate: true,
+      resource_type: descriptor.resourceType || "image",
+      type: "authenticated"
+    });
+    return ["ok", "not found"].includes(String(result?.result || "").toLowerCase());
+  }
+
+  return false;
+}
+
 function normalizeRangeOptions(options = {}) {
   const start = Number(options.start);
   const end = Number(options.end);
@@ -315,12 +372,7 @@ async function getMongoAsset(storageKey, options = {}) {
 
 async function getLocalAsset(storageKey, options = {}) {
   const fileName = String(storageKey || "").replace(LOCAL_PREFIX, "").trim();
-  const absolutePath = path.resolve(uploadDirectory, fileName);
-  const safeRoot = `${uploadDirectory}${path.sep}`;
-
-  if (!absolutePath.startsWith(safeRoot)) {
-    throw new Error("storageKey invalido");
-  }
+  const absolutePath = getLocalAbsolutePath(storageKey);
 
   if (!fs.existsSync(absolutePath)) {
     return null;
@@ -533,6 +585,7 @@ async function streamChatMediaAsset(req, res, storageKey, options = {}) {
 }
 
 module.exports = {
+  deleteChatMediaAsset,
   getChatMediaAsset,
   streamChatMediaAsset,
   uploadChatAudioAsset,

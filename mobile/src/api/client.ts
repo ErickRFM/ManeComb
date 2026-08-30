@@ -1,6 +1,7 @@
 import axios, { isAxiosError, type AxiosError } from 'axios';
 import { Platform } from 'react-native';
 import { formatRetryAfter, parseRetryAfterSeconds } from './retry-after';
+import { confirmChatMediaAttempt, ensureChatMediaAttemptIdentity } from './chat-media-attempt';
 import {
   API_ORIGIN as RESOLVED_API_ORIGIN,
   API_TIMEOUT_MS as RESOLVED_API_TIMEOUT_MS,
@@ -711,6 +712,11 @@ export async function sendMessageRequest(
 }
 
 export async function sendVoiceMessageRequest(conversationId: string, formData: FormData) {
+  const attempt = await ensureChatMediaAttemptIdentity({
+    conversationId,
+    formData,
+    kind: 'audio',
+  });
   const response = await apiClient.post<{ ok: boolean; data: ChatMessage }>(
     `/chat/conversations/${conversationId}/audio`,
     formData,
@@ -720,6 +726,7 @@ export async function sendVoiceMessageRequest(conversationId: string, formData: 
       _allowRetry: true,
     } as RetryableRequestConfig
   );
+  await confirmChatMediaAttempt(attempt.signature, attempt.clientMessageId);
   return response.data.data;
 }
 
@@ -772,6 +779,11 @@ export async function getDocumentHistoryRequest(documentId: string) {
 }
 
 export async function sendMediaMessageRequest(conversationId: string, formData: FormData) {
+  const attempt = await ensureChatMediaAttemptIdentity({
+    conversationId,
+    formData,
+    kind: 'media',
+  });
   const response = await apiClient.post<{ ok: boolean; data: ChatMessage }>(
     `/chat/conversations/${conversationId}/media`,
     formData,
@@ -781,6 +793,7 @@ export async function sendMediaMessageRequest(conversationId: string, formData: 
       _allowRetry: true,
     } as RetryableRequestConfig
   );
+  await confirmChatMediaAttempt(attempt.signature, attempt.clientMessageId);
   return response.data.data;
 }
 
