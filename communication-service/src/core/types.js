@@ -36,6 +36,7 @@ const STATUS = {
   OPENED: "opened",
   CLICKED: "clicked",
   FAILED: "failed",
+  PROVIDER_RESULT_UNKNOWN: "provider_result_unknown",
   BOUNCED: "bounced",
   REJECTED: "rejected",
   CANCELLED: "cancelled"
