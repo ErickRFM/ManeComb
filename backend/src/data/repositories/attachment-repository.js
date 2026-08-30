@@ -1,4 +1,8 @@
 const { randomUUID } = require("crypto");
+const {
+  abortChatWrite,
+  getPendingChatWrite
+} = require("./chat-write-transaction");
 
 class AttachmentRepository {
   constructor(model) {
@@ -41,13 +45,23 @@ class AttachmentRepository {
       return null;
     }
 
-    await this.model.updateOne(
-      { messageId: attachment.messageId, kind: attachment.kind },
-      { $setOnInsert: attachment },
-      { upsert: true }
-    );
-
-    return attachment;
+    const context = getPendingChatWrite(attachment.messageId);
+    try {
+      await this.model.updateOne(
+        { messageId: attachment.messageId, kind: attachment.kind },
+        { $setOnInsert: attachment },
+        {
+          upsert: true,
+          ...(context ? { session: context.session } : {})
+        }
+      );
+      return attachment;
+    } catch (error) {
+      if (context) {
+        await abortChatWrite(attachment.messageId, error).catch(() => undefined);
+      }
+      throw error;
+    }
   }
 }
 

@@ -1,3 +1,8 @@
+const {
+  abortChatWrite,
+  beginChatWriteTransaction
+} = require("./chat-write-transaction");
+
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
 
@@ -100,7 +105,42 @@ class ChatMessageRepository {
   }
 
   async create(message) {
-    return this.model.create(message);
+    const messageId = String(message?._id || message?.id || "").trim();
+    const conversationId = String(message?.conversationId || "").trim();
+    const ConversationModel = this.model.db.models.Conversation;
+
+    // Core/direct opening messages are inserted after Conversation already owns
+    // the same lastMessage/messageCount. They do not need the staged write unit.
+    if (ConversationModel && conversationId && messageId) {
+      const aggregate = await ConversationModel.findById(conversationId)
+        .select("lastMessage messageCount")
+        .lean();
+      const aggregateMessageId = String(
+        aggregate?.lastMessage?.id || aggregate?.lastMessage?._id || ""
+      ).trim();
+      if (aggregateMessageId === messageId && Number(aggregate?.messageCount || 0) > 0) {
+        return this.model.create(message);
+      }
+    }
+
+    const context = await beginChatWriteTransaction(this.model, messageId);
+    if (context?.retryAfterPending) {
+      // A concurrent request with the same deterministic message id finished.
+      // Re-run against the now authoritative state so the normal duplicate-key
+      // contract can classify the caller as a replay.
+      return this.create(message);
+    }
+    if (!context) {
+      return this.model.create(message);
+    }
+
+    try {
+      const [created] = await this.model.create([message], { session: context.session });
+      return created;
+    } catch (error) {
+      await abortChatWrite(messageId, error).catch(() => undefined);
+      throw error;
+    }
   }
 
   async upsertMany(messages) {
