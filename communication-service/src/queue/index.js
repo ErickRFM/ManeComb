@@ -171,7 +171,10 @@ function getReadiness() {
     ? queueConnected && workerStarted
     : workerStarted;
   return {
-    enabled: Boolean(bullmqAvailable),
+    // `enabled` means the queue subsystem can accept work. `mode` and
+    // `connected` keep the Redis-vs-memory distinction explicit. Mongo outbox
+    // recovery can therefore feed the existing local queue after a restart.
+    enabled: Boolean(bullmqAvailable || workerStarted),
     mode: bullmqAvailable ? "bullmq" : "memory",
     queues: Object.keys(localQueues),
     connected: Boolean(bullmqAvailable && queueConnected),
