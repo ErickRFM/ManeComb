@@ -61,6 +61,17 @@ assert.ok(client.includes('shouldExpirePortalSession'), 'el logout debe depender
 assert.ok(client.includes("status === 403 && url.includes('/auth/refresh')"), 'un 403 funcional no debe convertirse en logout');
 assert.ok(client.includes('onSessionExpired: async () => undefined'), 'la capa base no debe destruir sesion sin clasificar la causa');
 
+const baseClient = read('src/lib/api.ts');
+assert.ok(baseClient.includes('function createRefreshRequestId()'), 'refresh web debe tener una identidad logica estable');
+assert.ok(baseClient.includes('{ refreshToken, refreshRequestId }'), 'refresh debe enviar la identidad al CAS/replay del backend');
+assert.ok(baseClient.includes('for (let attempt = 0; attempt < 2; attempt += 1)'), 'refresh puede recuperar una respuesta perdida una sola vez');
+assert.ok(baseClient.includes('!isTransientRefreshError(error)'), 'solo fallos transitorios pueden activar replay del refresh');
+assert.ok(baseClient.includes('await delay(250)'), 'el retry del refresh debe ser acotado y no un loop libre');
+assert.ok(
+  baseClient.indexOf('const refreshRequestId = createRefreshRequestId();') < baseClient.indexOf('for (let attempt = 0; attempt < 2; attempt += 1)'),
+  'ambos intentos deben reutilizar exactamente el mismo refreshRequestId'
+);
+
 const store = read('src/store/use-app-store.ts');
 assert.ok(
   store.includes('socket.auth = { token: session.token };'),
