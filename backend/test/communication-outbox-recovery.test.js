@@ -6,8 +6,9 @@ const queue = require("../../communication-service/src/queue");
 const engine = require("../../communication-service/src/delivery/engine");
 
 const INDEX_NAME = "email_delivery_idempotency";
+const HOUR_MS = 60 * 60 * 1000;
 
-function buildInput(suffix = "1") {
+function buildInput(suffix = "1", provider = "resend") {
   return {
     tenantScope: "organization:outbox-test",
     organizationId: "outbox-test",
@@ -15,7 +16,7 @@ function buildInput(suffix = "1") {
     idempotencyKey: `password-reset:outbox-${suffix}`,
     recipient: { email: `recipient-${suffix}@example.com` },
     template: "password-reset",
-    provider: "resend",
+    provider,
     priority: 5,
     data: {
       name: "Outbox",
@@ -24,6 +25,13 @@ function buildInput(suffix = "1") {
     status: "created",
     requireDurable: false
   };
+}
+
+async function setDeliveryClock(deliveryId, date) {
+  await mongoose.connection.db.collection("communication_history").updateOne(
+    { deliveryId },
+    { $set: { updatedAt: date, processingAt: date } }
+  );
 }
 
 async function main() {
@@ -75,7 +83,13 @@ async function main() {
       limit: 5
     });
 
-    assert.deepEqual(recovery, { scanned: 1, recovered: 1, failed: 0, skipped: false });
+    assert.deepEqual(recovery, {
+      scanned: 1,
+      recovered: 1,
+      failed: 0,
+      quarantined: 0,
+      skipped: false
+    });
     assert.equal(queuedJobs.length, 1);
     assert.equal(queuedJobs[0].name, "send-email");
     assert.equal(queuedJobs[0].data.deliveryId, deliveryId);
@@ -118,7 +132,108 @@ async function main() {
     });
     assert.equal(await history.getOutboxByDeliveryId(failedClaim.delivery.deliveryId), null);
 
-    console.log("ok - Mongo outbox reconstruye BullMQ tras pérdida total de Redis y minimiza PII pendiente");
+    // If the process died after crossing the provider boundary, Resend replay is
+    // safe only while its documented idempotency retention is still alive. We
+    // use a 23h ManeComb window for margin inside Resend's 24h contract.
+    const clock = new Date("2026-08-30T03:00:00.000Z");
+    const recentProcessing = await history.claim(buildInput("recent-processing"));
+    await history.updateDelivery(recentProcessing.delivery.deliveryId, {
+      status: "processing",
+      attempts: 1
+    });
+    await setDeliveryClock(
+      recentProcessing.delivery.deliveryId,
+      new Date(clock.getTime() - 5 * 60 * 1000)
+    );
+    const jobsBeforeRecentRecovery = queuedJobs.length;
+    const recentRecovery = await engine.reconcileOutbox({
+      now: clock,
+      staleMs: 1000,
+      leaseMs: 60000,
+      providerReplayWindowMs: 23 * HOUR_MS,
+      limit: 5
+    });
+    assert.deepEqual(recentRecovery, {
+      scanned: 1,
+      recovered: 1,
+      failed: 0,
+      quarantined: 0,
+      skipped: false
+    });
+    assert.equal(queuedJobs.length, jobsBeforeRecentRecovery + 1);
+    assert.equal(
+      queuedJobs.at(-1).data.deliveryId,
+      recentProcessing.delivery.deliveryId,
+      "El replay reciente debe conservar exactamente el deliveryId usado como Idempotency-Key"
+    );
+    await history.finalizeDelivery(recentProcessing.delivery.deliveryId, { status: "failed" });
+
+    // Once that provider-certainty window has expired, automatic retry is more
+    // dangerous than a visible unknown result. Quarantine removes executable
+    // payload and queues nothing, preserving one-provider-attempt semantics.
+    const expiredProcessing = await history.claim(buildInput("expired-processing"));
+    await history.updateDelivery(expiredProcessing.delivery.deliveryId, {
+      status: "processing",
+      attempts: 1
+    });
+    await setDeliveryClock(
+      expiredProcessing.delivery.deliveryId,
+      new Date(clock.getTime() - 24 * HOUR_MS)
+    );
+    const jobsBeforeExpiredRecovery = queuedJobs.length;
+    const expiredRecovery = await engine.reconcileOutbox({
+      now: clock,
+      staleMs: 1000,
+      leaseMs: 60000,
+      providerReplayWindowMs: 23 * HOUR_MS,
+      limit: 5
+    });
+    assert.deepEqual(expiredRecovery, {
+      scanned: 0,
+      recovered: 0,
+      failed: 0,
+      quarantined: 1,
+      skipped: false
+    });
+    assert.equal(queuedJobs.length, jobsBeforeExpiredRecovery);
+    const expiredResult = await history.getByDeliveryId(expiredProcessing.delivery.deliveryId);
+    assert.equal(expiredResult.status, "provider_result_unknown");
+    assert.ok(expiredResult.finalizedAt instanceof Date);
+    assert.equal(await history.getOutboxByDeliveryId(expiredProcessing.delivery.deliveryId), null);
+
+    // Providers without a known retry-idempotency contract never get a blind
+    // stale `processing` replay. They are quarantined as soon as stale.
+    const unknownProvider = await history.claim(buildInput("generic-processing", "generic"));
+    await history.updateDelivery(unknownProvider.delivery.deliveryId, {
+      status: "processing",
+      attempts: 1
+    });
+    await setDeliveryClock(
+      unknownProvider.delivery.deliveryId,
+      new Date(clock.getTime() - 5 * 60 * 1000)
+    );
+    const jobsBeforeGeneric = queuedJobs.length;
+    const genericRecovery = await engine.reconcileOutbox({
+      now: clock,
+      staleMs: 1000,
+      leaseMs: 60000,
+      providerReplayWindowMs: 23 * HOUR_MS,
+      limit: 5
+    });
+    assert.deepEqual(genericRecovery, {
+      scanned: 0,
+      recovered: 0,
+      failed: 0,
+      quarantined: 1,
+      skipped: false
+    });
+    assert.equal(queuedJobs.length, jobsBeforeGeneric);
+    assert.equal(
+      (await history.getByDeliveryId(unknownProvider.delivery.deliveryId)).status,
+      "provider_result_unknown"
+    );
+
+    console.log("ok - Mongo outbox recupera Redis sin duplicar y acota ambiguedad del provider");
   } finally {
     queue.getReadiness = originalGetReadiness;
     queue.getQueue = originalGetQueue;
