@@ -165,7 +165,7 @@ async function claim(input) {
       const value = await Model.findOneAndUpdate(
         identity,
         { $setOnInsert: proposed },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: "after" }
       );
       const delivery = value.toObject ? value.toObject() : value;
       return { delivery, created: delivery.deliveryId === proposed.deliveryId, durable: true };
@@ -307,14 +307,15 @@ async function claimRecoverableDelivery(options = {}) {
       },
       $inc: { recoveryCount: 1 }
     },
-    { new: true, sort: { updatedAt: 1 } }
+    { returnDocument: "after", sort: { updatedAt: 1 } }
   ).select("+outboxPayload").lean();
 }
 
-async function releaseRecoveryLease(deliveryId, updates = {}) {
+async function releaseRecoveryLease(deliveryId, updates = {}, options = {}) {
   const Model = getModel();
   if (!Model) return null;
-  const safe = buildSafeUpdates(updates);
+  const referenceNow = options.now instanceof Date ? options.now : new Date();
+  const safe = buildSafeUpdates(updates, referenceNow);
   await Model.updateOne(
     { deliveryId },
     {
