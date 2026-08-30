@@ -108,11 +108,10 @@ class DeliveryEngine {
     const now = options.now instanceof Date ? options.now : new Date();
     const staleBefore = new Date(now.getTime() - staleMs);
 
-    // A `processing` record means the provider boundary may already have been
-    // crossed. Replaying it is safe only while the provider's idempotency
-    // contract is still valid. Resend documents a 24h window; ManeComb uses a
-    // 23h recovery window for clock/queue margin. Providers without that known
-    // contract are quarantined as soon as their processing lease becomes stale.
+    // `processing` and retryable `failed` rows have both crossed the provider
+    // boundary. Replay is safe only while the provider's idempotency contract is
+    // still valid. Resend documents 24h; ManeComb uses 23h for clock/queue margin.
+    // Providers without that known contract are quarantined once stale.
     const quarantined = await history.quarantineUnsafeProviderResults({
       now,
       staleMs,
@@ -206,8 +205,9 @@ class DeliveryEngine {
         message: sanitizeProviderError(error)
       });
       // `failed` is not automatically terminal: BullMQ/direct retry may still
-      // execute the same durable delivery. The outbox remains until the caller
-      // explicitly finalizes exhausted/non-retryable delivery.
+      // execute the same durable delivery. If the process dies here, the outbox
+      // reaper treats this state as provider-result-sensitive rather than as a
+      // generic queue failure.
       await history.updateDelivery(deliveryId, {
         status: "failed",
         attempts,
@@ -289,11 +289,10 @@ class DeliveryEngine {
   async sendViaQueue(input) {
     const claimed = await this.claim(input);
     if (!claimed.created) {
-      // A repeated domain event may be the only signal that Redis lost a job.
-      // If Mongo still has an executable created/failed outbox entry, repair it
-      // immediately using the deterministic BullMQ jobId. Queued/processing
-      // entries are handled by the stale reaper to avoid status churn.
-      if (claimed.durable && ["created", "failed"].includes(claimed.delivery.status)) {
+      // A repeated domain event can repair a Redis loss before the provider was
+      // attempted. Provider-attempted failed/processing states must go through
+      // the stale reaper and its idempotency-window policy instead.
+      if (claimed.durable && claimed.delivery.status === "created") {
         const pending = await history.getOutboxByDeliveryId(claimed.delivery.deliveryId);
         if (pending?.outboxPayload) {
           try {
