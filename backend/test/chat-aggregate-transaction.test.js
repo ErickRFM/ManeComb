@@ -13,8 +13,31 @@ const {
   clearPendingChatWritesForTests,
   topologySupportsTransactions
 } = require("../src/data/repositories/chat-write-transaction");
+const { buildAggregateRepair } = require("../scripts/migrate-chat-messages");
 
 async function main() {
+  const legacyRepair = buildAggregateRepair(
+    {
+      messageCount: 9,
+      lastMessage: { id: "stale-message" },
+      lastActivityAt: new Date("2026-08-29T19:00:00.000Z"),
+      unreadBy: { "user-recipient": 7 }
+    },
+    1,
+    {
+      _id: "authoritative-message",
+      createdAt: new Date("2026-08-29T20:00:00.000Z")
+    }
+  );
+  assert.equal(legacyRepair.changed, true);
+  assert.equal(legacyRepair.update.messageCount, 1);
+  assert.equal(String(legacyRepair.update.lastMessage._id), "authoritative-message");
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(legacyRepair.update, "unreadBy"),
+    false,
+    "La reconciliacion historica nunca debe inventar unreadBy"
+  );
+
   const replSet = await MongoMemoryReplSet.create({ replSet: { count: 1 } });
 
   try {
