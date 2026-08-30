@@ -16,6 +16,28 @@ const OUTBOX_STALE_MS = 120000;
 const OUTBOX_LEASE_MS = 60000;
 const OUTBOX_REAPER_BATCH = 25;
 const PROVIDER_REPLAY_WINDOW_MS = history.DEFAULT_PROVIDER_REPLAY_WINDOW_MS;
+const PROVIDER_RESULT_UNKNOWN_STATUS = history.PROVIDER_RESULT_UNKNOWN_STATUS || "provider_result_unknown";
+
+function getProviderRecoverySafety(delivery, now, providerReplayWindowMs) {
+  const attempts = Math.max(0, Number(delivery?.attempts) || 0);
+  if (attempts === 0) return { safe: true, reason: "pre_provider" };
+
+  const provider = String(delivery?.provider || delivery?.outboxPayload?.provider || "").trim().toLowerCase();
+  if (provider !== "resend") {
+    return { safe: false, reason: "provider_contract_unknown" };
+  }
+
+  const createdAtMs = new Date(delivery?.createdAt || 0).getTime();
+  if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) {
+    return { safe: false, reason: "provider_attempt_age_unknown" };
+  }
+
+  if (now.getTime() - createdAtMs >= providerReplayWindowMs) {
+    return { safe: false, reason: "provider_idempotency_window_expired" };
+  }
+
+  return { safe: true, reason: "provider_idempotency_window_live" };
+}
 
 class DeliveryEngine {
   constructor() {
@@ -85,9 +107,27 @@ class DeliveryEngine {
   async recoverDelivery(delivery, options = {}) {
     const input = delivery?.outboxPayload;
     if (!delivery?.deliveryId || !input) return null;
+
+    const recoveryNow = options.recoveryNow instanceof Date ? options.recoveryNow : new Date();
+    const providerReplayWindowMs = Math.max(
+      OUTBOX_STALE_MS,
+      Number(options.providerReplayWindowMs) || PROVIDER_REPLAY_WINDOW_MS
+    );
+    const safety = getProviderRecoverySafety(delivery, recoveryNow, providerReplayWindowMs);
+    if (!safety.safe) {
+      await history.finalizeDelivery(delivery.deliveryId, {
+        status: PROVIDER_RESULT_UNKNOWN_STATUS,
+        errorCategory: PROVIDER_RESULT_UNKNOWN_STATUS,
+        errorCode: "PROVIDER_RESULT_UNKNOWN",
+        errorMessage: `Automatic provider replay suppressed: ${safety.reason}`
+      });
+      metrics.increment("provider_result_unknown", 1, { provider: input.provider || delivery.provider });
+      return { quarantined: true };
+    }
+
     return this.enqueueDelivery(input, delivery.deliveryId, {
       recovery: true,
-      recoveryNow: options.recoveryNow
+      recoveryNow
     });
   }
 
@@ -112,7 +152,7 @@ class DeliveryEngine {
     // boundary. Replay is safe only while the provider's idempotency contract is
     // still valid. Resend documents 24h; ManeComb uses 23h for clock/queue margin.
     // Providers without that known contract are quarantined once stale.
-    const quarantined = await history.quarantineUnsafeProviderResults({
+    let quarantined = await history.quarantineUnsafeProviderResults({
       now,
       staleMs,
       providerReplayWindowMs
@@ -140,8 +180,12 @@ class DeliveryEngine {
       scanned += 1;
 
       try {
-        await this.recoverDelivery(delivery, { recoveryNow: now });
-        recovered += 1;
+        const recovery = await this.recoverDelivery(delivery, {
+          recoveryNow: now,
+          providerReplayWindowMs
+        });
+        if (recovery?.quarantined) quarantined += 1;
+        else recovered += 1;
       } catch (error) {
         failed += 1;
         await history.releaseRecoveryLease(delivery.deliveryId, {
