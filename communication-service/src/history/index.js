@@ -7,7 +7,7 @@ let indexState = "unavailable";
 let HistoryModel = null;
 let memoryStore = [];
 
-const SAFE_REQUEUE_STATUSES = ["created", "queued", "failed"];
+const SAFE_REQUEUE_STATUSES = ["created", "queued"];
 const PROVIDER_RESULT_UNKNOWN_STATUS = "provider_result_unknown";
 const AUTO_FINAL_STATUSES = new Set(["sent", "skipped", "dry_run", PROVIDER_RESULT_UNKNOWN_STATUS]);
 const DEFAULT_PROVIDER_REPLAY_WINDOW_MS = 23 * 60 * 60 * 1000;
@@ -304,7 +304,7 @@ async function quarantineUnsafeProviderResults(options = {}) {
   const result = await Model.updateMany(
     {
       finalizedAt: null,
-      status: "processing",
+      status: { $in: ["processing", "failed"] },
       outboxPayload: { $exists: true, $ne: null },
       $or: [
         {
@@ -362,7 +362,7 @@ async function claimRecoverableDelivery(options = {}) {
               updatedAt: { $lte: staleBefore }
             },
             {
-              status: "processing",
+              status: { $in: ["processing", "failed"] },
               provider: "resend",
               updatedAt: { $lte: staleBefore, $gte: resendReplayAfter }
             }
