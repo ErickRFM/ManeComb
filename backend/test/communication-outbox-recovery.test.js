@@ -30,7 +30,7 @@ function buildInput(suffix = "1", provider = "resend") {
 async function setDeliveryClock(deliveryId, date) {
   await mongoose.connection.db.collection("communication_history").updateOne(
     { deliveryId },
-    { $set: { updatedAt: date, processingAt: date } }
+    { $set: { updatedAt: date, processingAt: date, failedAt: date } }
   );
 }
 
@@ -117,8 +117,8 @@ async function main() {
     assert.equal(Object.prototype.hasOwnProperty.call(rawSent, "outboxPayload"), false);
     assert.ok(rawSent.finalizedAt instanceof Date);
 
-    // Provider failure is recoverable while retries remain, so its payload must
-    // survive `status: failed`; explicit finalization is what removes it.
+    // Provider failure remains executable while live retry policy still owns it;
+    // explicit finalization is what removes the outbox after retry exhaustion.
     const failedClaim = await history.claim(buildInput("retryable-failure"));
     await history.updateDelivery(failedClaim.delivery.deliveryId, {
       status: "failed",
@@ -168,9 +168,41 @@ async function main() {
     );
     await history.finalizeDelivery(recentProcessing.delivery.deliveryId, { status: "failed" });
 
-    // Once that provider-certainty window has expired, automatic retry is more
-    // dangerous than a visible unknown result. Quarantine removes executable
-    // payload and queues nothing, preserving one-provider-attempt semantics.
+    // A timeout/error is persisted as `failed` before the live caller decides
+    // whether BullMQ/direct retry continues. If the process dies at that exact
+    // point, recent Resend failure is still replayable with the same identity.
+    const recentFailed = await history.claim(buildInput("recent-failed"));
+    await history.updateDelivery(recentFailed.delivery.deliveryId, {
+      status: "failed",
+      attempts: 1,
+      errorCategory: "timeout",
+      errorMessage: "provider timeout"
+    });
+    await setDeliveryClock(
+      recentFailed.delivery.deliveryId,
+      new Date(clock.getTime() - 5 * 60 * 1000)
+    );
+    const jobsBeforeRecentFailed = queuedJobs.length;
+    const recentFailedRecovery = await engine.reconcileOutbox({
+      now: clock,
+      staleMs: 1000,
+      leaseMs: 60000,
+      providerReplayWindowMs: 23 * HOUR_MS,
+      limit: 5
+    });
+    assert.deepEqual(recentFailedRecovery, {
+      scanned: 1,
+      recovered: 1,
+      failed: 0,
+      quarantined: 0,
+      skipped: false
+    });
+    assert.equal(queuedJobs.length, jobsBeforeRecentFailed + 1);
+    assert.equal(queuedJobs.at(-1).data.deliveryId, recentFailed.delivery.deliveryId);
+    await history.finalizeDelivery(recentFailed.delivery.deliveryId, { status: "failed" });
+
+    // Once provider certainty expires, both processing and failed attempts are
+    // quarantined instead of being blindly resent.
     const expiredProcessing = await history.claim(buildInput("expired-processing"));
     await history.updateDelivery(expiredProcessing.delivery.deliveryId, {
       status: "processing",
@@ -201,8 +233,41 @@ async function main() {
     assert.ok(expiredResult.finalizedAt instanceof Date);
     assert.equal(await history.getOutboxByDeliveryId(expiredProcessing.delivery.deliveryId), null);
 
+    const expiredFailed = await history.claim(buildInput("expired-failed"));
+    await history.updateDelivery(expiredFailed.delivery.deliveryId, {
+      status: "failed",
+      attempts: 1,
+      errorCategory: "timeout",
+      errorMessage: "provider timeout"
+    });
+    await setDeliveryClock(
+      expiredFailed.delivery.deliveryId,
+      new Date(clock.getTime() - 24 * HOUR_MS)
+    );
+    const jobsBeforeExpiredFailed = queuedJobs.length;
+    const expiredFailedRecovery = await engine.reconcileOutbox({
+      now: clock,
+      staleMs: 1000,
+      leaseMs: 60000,
+      providerReplayWindowMs: 23 * HOUR_MS,
+      limit: 5
+    });
+    assert.deepEqual(expiredFailedRecovery, {
+      scanned: 0,
+      recovered: 0,
+      failed: 0,
+      quarantined: 1,
+      skipped: false
+    });
+    assert.equal(queuedJobs.length, jobsBeforeExpiredFailed);
+    assert.equal(
+      (await history.getByDeliveryId(expiredFailed.delivery.deliveryId)).status,
+      "provider_result_unknown"
+    );
+
     // Providers without a known retry-idempotency contract never get a blind
-    // stale `processing` replay. They are quarantined as soon as stale.
+    // stale replay, whether the process died in `processing` or just after the
+    // provider failure was persisted as `failed`.
     const unknownProvider = await history.claim(buildInput("generic-processing", "generic"));
     await history.updateDelivery(unknownProvider.delivery.deliveryId, {
       status: "processing",
@@ -233,7 +298,39 @@ async function main() {
       "provider_result_unknown"
     );
 
-    console.log("ok - Mongo outbox recupera Redis sin duplicar y acota ambiguedad del provider");
+    const unknownFailed = await history.claim(buildInput("generic-failed", "generic"));
+    await history.updateDelivery(unknownFailed.delivery.deliveryId, {
+      status: "failed",
+      attempts: 1,
+      errorCategory: "timeout",
+      errorMessage: "provider timeout"
+    });
+    await setDeliveryClock(
+      unknownFailed.delivery.deliveryId,
+      new Date(clock.getTime() - 5 * 60 * 1000)
+    );
+    const jobsBeforeGenericFailed = queuedJobs.length;
+    const genericFailedRecovery = await engine.reconcileOutbox({
+      now: clock,
+      staleMs: 1000,
+      leaseMs: 60000,
+      providerReplayWindowMs: 23 * HOUR_MS,
+      limit: 5
+    });
+    assert.deepEqual(genericFailedRecovery, {
+      scanned: 0,
+      recovered: 0,
+      failed: 0,
+      quarantined: 1,
+      skipped: false
+    });
+    assert.equal(queuedJobs.length, jobsBeforeGenericFailed);
+    assert.equal(
+      (await history.getByDeliveryId(unknownFailed.delivery.deliveryId)).status,
+      "provider_result_unknown"
+    );
+
+    console.log("ok - Mongo outbox recupera Redis y limita provider ambiguity en processing/failed");
   } finally {
     queue.getReadiness = originalGetReadiness;
     queue.getQueue = originalGetQueue;
