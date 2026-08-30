@@ -8,7 +8,7 @@
   },
   "private": true,
   "scripts": {
-    "test": "node --require ./tests/setup-env.js tests/package-boundary.test.js && node --require ./tests/setup-env.js tests/communication.test.js && node tests/email-branding.test.js",
+    "test": "node --require ./tests/setup-env.js tests/package-boundary.test.js && node --require ./tests/setup-env.js tests/communication.test.js && node --require ./tests/setup-env.js tests/resend-idempotency.test.js && node tests/email-branding.test.js",
     "test:all": "node tests/run-all.js"
   },
   "dependencies": {
