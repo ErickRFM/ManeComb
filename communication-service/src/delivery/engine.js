@@ -15,6 +15,7 @@ const { createDeliveryResult } = require("./result");
 const OUTBOX_STALE_MS = 120000;
 const OUTBOX_LEASE_MS = 60000;
 const OUTBOX_REAPER_BATCH = 25;
+const PROVIDER_REPLAY_WINDOW_MS = history.DEFAULT_PROVIDER_REPLAY_WINDOW_MS;
 
 class DeliveryEngine {
   constructor() {
@@ -93,15 +94,38 @@ class DeliveryEngine {
   async reconcileOutbox(options = {}) {
     const historyReadiness = history.getReadiness();
     const queueReadiness = queue.getReadiness();
-    if (!historyReadiness.durable || !queueReadiness.enabled) {
-      return { scanned: 0, recovered: 0, failed: 0, skipped: true };
+    if (!historyReadiness.durable) {
+      return { scanned: 0, recovered: 0, failed: 0, quarantined: 0, skipped: true };
     }
 
     const staleMs = Math.max(1000, Number(options.staleMs) || OUTBOX_STALE_MS);
     const leaseMs = Math.max(1000, Number(options.leaseMs) || OUTBOX_LEASE_MS);
     const limit = Math.min(Math.max(1, Number(options.limit) || OUTBOX_REAPER_BATCH), 100);
+    const providerReplayWindowMs = Math.max(
+      staleMs,
+      Number(options.providerReplayWindowMs) || PROVIDER_REPLAY_WINDOW_MS
+    );
     const now = options.now instanceof Date ? options.now : new Date();
     const staleBefore = new Date(now.getTime() - staleMs);
+
+    // A `processing` record means the provider boundary may already have been
+    // crossed. Replaying it is safe only while the provider's idempotency
+    // contract is still valid. Resend documents a 24h window; ManeComb uses a
+    // 23h recovery window for clock/queue margin. Providers without that known
+    // contract are quarantined as soon as their processing lease becomes stale.
+    const quarantined = await history.quarantineUnsafeProviderResults({
+      now,
+      staleMs,
+      providerReplayWindowMs
+    });
+    if (quarantined) {
+      metrics.increment("provider_result_unknown", quarantined, {});
+    }
+
+    if (!queueReadiness.enabled) {
+      return { scanned: 0, recovered: 0, failed: 0, quarantined, skipped: true };
+    }
+
     let scanned = 0;
     let recovered = 0;
     let failed = 0;
@@ -110,7 +134,8 @@ class DeliveryEngine {
       const delivery = await history.claimRecoverableDelivery({
         now,
         staleBefore,
-        leaseMs
+        leaseMs,
+        providerReplayWindowMs
       });
       if (!delivery) break;
       scanned += 1;
@@ -136,7 +161,7 @@ class DeliveryEngine {
       }
     }
 
-    return { scanned, recovered, failed, skipped: false };
+    return { scanned, recovered, failed, quarantined, skipped: false };
   }
 
   async processDelivery(input, deliveryId, attempts = 1) {
