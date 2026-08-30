@@ -7,8 +7,10 @@ let indexState = "unavailable";
 let HistoryModel = null;
 let memoryStore = [];
 
-const RECOVERABLE_STATUSES = ["created", "queued", "processing", "failed"];
-const AUTO_FINAL_STATUSES = new Set(["sent", "skipped", "dry_run"]);
+const SAFE_REQUEUE_STATUSES = ["created", "queued", "failed"];
+const PROVIDER_RESULT_UNKNOWN_STATUS = "provider_result_unknown";
+const AUTO_FINAL_STATUSES = new Set(["sent", "skipped", "dry_run", PROVIDER_RESULT_UNKNOWN_STATUS]);
+const DEFAULT_PROVIDER_REPLAY_WINDOW_MS = 23 * 60 * 60 * 1000;
 
 function configurePersistence(options = {}) {
   mongoose = options.mongoose || null;
@@ -36,7 +38,16 @@ function getModel() {
       provider: { type: String, default: null },
       status: {
         type: String,
-        enum: ["created", "queued", "processing", "sent", "failed", "skipped", "dry_run"],
+        enum: [
+          "created",
+          "queued",
+          "processing",
+          "sent",
+          "failed",
+          "skipped",
+          "dry_run",
+          PROVIDER_RESULT_UNKNOWN_STATUS
+        ],
         required: true,
         index: true
       },
@@ -279,6 +290,52 @@ async function getOutboxByDeliveryId(deliveryId) {
     .lean();
 }
 
+async function quarantineUnsafeProviderResults(options = {}) {
+  const Model = getModel();
+  if (!Model) return 0;
+  const now = options.now instanceof Date ? options.now : new Date();
+  const staleMs = Math.max(1000, Number(options.staleMs) || 120000);
+  const replayWindowMs = Math.max(
+    staleMs,
+    Number(options.providerReplayWindowMs) || DEFAULT_PROVIDER_REPLAY_WINDOW_MS
+  );
+  const genericProviderCutoff = new Date(now.getTime() - staleMs);
+  const resendCutoff = new Date(now.getTime() - replayWindowMs);
+  const result = await Model.updateMany(
+    {
+      finalizedAt: null,
+      status: "processing",
+      outboxPayload: { $exists: true, $ne: null },
+      $or: [
+        {
+          provider: "resend",
+          updatedAt: { $lt: resendCutoff }
+        },
+        {
+          provider: { $ne: "resend" },
+          updatedAt: { $lte: genericProviderCutoff }
+        }
+      ]
+    },
+    {
+      $set: {
+        status: PROVIDER_RESULT_UNKNOWN_STATUS,
+        finalizedAt: now,
+        updatedAt: now,
+        errorCategory: PROVIDER_RESULT_UNKNOWN_STATUS,
+        errorCode: "PROVIDER_RESULT_UNKNOWN",
+        errorMessage: "Provider result could not be proven safely; automatic retry suppressed"
+      },
+      $unset: {
+        outboxPayload: 1,
+        recoveryLeaseUntil: 1,
+        recoveryClaimedAt: 1
+      }
+    }
+  );
+  return Number(result.modifiedCount || 0);
+}
+
 async function claimRecoverableDelivery(options = {}) {
   const Model = getModel();
   if (!Model) return null;
@@ -287,17 +344,37 @@ async function claimRecoverableDelivery(options = {}) {
     ? options.staleBefore
     : new Date(now.getTime() - Math.max(1, Number(options.staleMs) || 120000));
   const leaseMs = Math.max(1000, Number(options.leaseMs) || 60000);
+  const replayWindowMs = Math.max(
+    1000,
+    Number(options.providerReplayWindowMs) || DEFAULT_PROVIDER_REPLAY_WINDOW_MS
+  );
+  const resendReplayAfter = new Date(now.getTime() - replayWindowMs);
 
   return Model.findOneAndUpdate(
     {
       finalizedAt: null,
-      status: { $in: RECOVERABLE_STATUSES },
-      updatedAt: { $lte: staleBefore },
       outboxPayload: { $exists: true, $ne: null },
-      $or: [
-        { recoveryLeaseUntil: null },
-        { recoveryLeaseUntil: { $exists: false } },
-        { recoveryLeaseUntil: { $lte: now } }
+      $and: [
+        {
+          $or: [
+            {
+              status: { $in: SAFE_REQUEUE_STATUSES },
+              updatedAt: { $lte: staleBefore }
+            },
+            {
+              status: "processing",
+              provider: "resend",
+              updatedAt: { $lte: staleBefore, $gte: resendReplayAfter }
+            }
+          ]
+        },
+        {
+          $or: [
+            { recoveryLeaseUntil: null },
+            { recoveryLeaseUntil: { $exists: false } },
+            { recoveryLeaseUntil: { $lte: now } }
+          ]
+        }
       ]
     },
     {
@@ -374,6 +451,7 @@ async function getStats(filters = {}) {
     total: entries.length,
     sent: entries.filter((e) => e.status === "sent").length,
     failed: entries.filter((e) => e.status === "failed").length,
+    providerResultUnknown: entries.filter((e) => e.status === PROVIDER_RESULT_UNKNOWN_STATUS).length,
     bounced: entries.filter((e) => e.errorCategory === "bounce").length,
     avgDurationMs: null,
     totalAttempts: entries.reduce((sum, e) => sum + (e.attempts || 0), 0)
@@ -403,11 +481,14 @@ module.exports = {
   finalizeDelivery,
   getByDeliveryId,
   getOutboxByDeliveryId,
+  quarantineUnsafeProviderResults,
   claimRecoverableDelivery,
   releaseRecoveryLease,
   log,
   query,
   getStats,
   getReadiness,
-  resetMemoryStore
+  resetMemoryStore,
+  PROVIDER_RESULT_UNKNOWN_STATUS,
+  DEFAULT_PROVIDER_REPLAY_WINDOW_MS
 };
