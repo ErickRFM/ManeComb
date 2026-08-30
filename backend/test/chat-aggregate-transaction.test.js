@@ -21,6 +21,15 @@ async function main() {
     await mongoose.connect(replSet.getUri(), { dbName: "manecomb-chat-aggregate-tx" });
     assert.equal(topologySupportsTransactions(ChatMessageModel), true);
 
+    // Mongoose can build indexes lazily after connection. Finish all DDL before
+    // opening the fault-injection transaction so a tiny ephemeral lock window
+    // cannot masquerade as a write-path failure.
+    await Promise.all([
+      ChatAttachmentModel.init(),
+      ChatMessageModel.init(),
+      ConversationModel.init()
+    ]);
+
     await Promise.all([
       ChatAttachmentModel.deleteMany({}),
       ChatMessageModel.deleteMany({}),
