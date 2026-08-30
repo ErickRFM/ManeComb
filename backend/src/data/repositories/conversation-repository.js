@@ -1,3 +1,9 @@
+const {
+  abortChatWrite,
+  commitChatWrite,
+  getPendingChatWrite
+} = require("./chat-write-transaction");
+
 class ConversationRepository {
   constructor(model) {
     this.model = model;
@@ -22,18 +28,38 @@ class ConversationRepository {
       update.unreadBy = unreadBy;
     }
 
-    if (incrementMessageCount) {
-      return this.model.findByIdAndUpdate(
-        conversationId,
-        {
+    const messageId = String(lastMessage?.id || lastMessage?._id || "").trim();
+    const context = getPendingChatWrite(messageId);
+    const options = {
+      returnDocument: "after",
+      ...(context ? { session: context.session } : {})
+    };
+    const mutation = incrementMessageCount
+      ? {
           $set: update,
           $inc: { messageCount: incrementMessageCount }
-        },
-        { new: true }
-      );
-    }
+        }
+      : { $set: update };
 
-    return this.model.findByIdAndUpdate(conversationId, { $set: update }, { new: true });
+    try {
+      const conversation = await this.model.findByIdAndUpdate(
+        conversationId,
+        mutation,
+        options
+      );
+      if (!conversation) {
+        throw new Error("Conversacion no encontrada al consolidar mensaje");
+      }
+      if (context) {
+        await commitChatWrite(messageId);
+      }
+      return conversation;
+    } catch (error) {
+      if (context) {
+        await abortChatWrite(messageId, error).catch(() => undefined);
+      }
+      throw error;
+    }
   }
 }
 
