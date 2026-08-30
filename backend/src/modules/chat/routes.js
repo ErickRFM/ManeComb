@@ -247,7 +247,10 @@ router.post("/conversations/:conversationId/messages", authenticate, async (req,
         }
       : { kind: "text", text: text.trim(), messageId }
   );
-  const deduplicated = Boolean(message?.deduplicated);
+  // Ambos stores marcan `deduplicated: false` al crear. Los fast-paths que
+  // recuperan un messageId ya existente son legado y pueden no traer flag; eso
+  // sigue siendo un replay y nunca debe repetir Socket/FCM.
+  const deduplicated = Boolean(message) && message.deduplicated !== false;
   const responseMessage = message ? { ...message } : null;
   if (responseMessage) delete responseMessage.deduplicated;
 
