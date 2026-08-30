@@ -66,7 +66,7 @@ class DeliveryEngine {
         errorCategory: null,
         errorCode: null,
         errorMessage: null
-      });
+      }, { now: options.recoveryNow });
       metrics.increment("outbox_recovered", 1, { template: input.template });
     } else {
       await history.updateDelivery(deliveryId, {
@@ -81,10 +81,13 @@ class DeliveryEngine {
     return job;
   }
 
-  async recoverDelivery(delivery) {
+  async recoverDelivery(delivery, options = {}) {
     const input = delivery?.outboxPayload;
     if (!delivery?.deliveryId || !input) return null;
-    return this.enqueueDelivery(input, delivery.deliveryId, { recovery: true });
+    return this.enqueueDelivery(input, delivery.deliveryId, {
+      recovery: true,
+      recoveryNow: options.recoveryNow
+    });
   }
 
   async reconcileOutbox(options = {}) {
@@ -113,7 +116,7 @@ class DeliveryEngine {
       scanned += 1;
 
       try {
-        await this.recoverDelivery(delivery);
+        await this.recoverDelivery(delivery, { recoveryNow: now });
         recovered += 1;
       } catch (error) {
         failed += 1;
@@ -121,7 +124,7 @@ class DeliveryEngine {
           errorCategory: "queue",
           errorCode: "OUTBOX_REQUEUE_FAILED",
           errorMessage: error
-        }).catch(() => null);
+        }, { now }).catch(() => null);
         logger.logError("EmailOutboxRecoveryFailed", new Error(sanitizeProviderError(error)), {
           ...safeDeliveryLog({
             ...(delivery.outboxPayload || {}),
