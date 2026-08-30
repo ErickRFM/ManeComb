@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "fa45f603271ab481f637b7fb5941c324d190560b",
-    "capturedAt": "2026-08-26",
-    "phase": "post-current-route-authority-closeout"
+    "commit": "5cd577def008516b58d9a1362d4f6eaf163a5df5",
+    "capturedAt": "2026-08-29",
+    "phase": "post-chat-text-replay-closeout"
   },
   "products": [
     {
