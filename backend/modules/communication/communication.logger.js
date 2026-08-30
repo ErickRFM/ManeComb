@@ -1,4 +1,4 @@
-const commLogger = require("../../../communication-service/src/logger");
+const { logger: commLogger } = require("../../../communication-service");
 const manecombLogger = require("../../src/services/logger");
 
 commLogger.setLogger(manecombLogger);
