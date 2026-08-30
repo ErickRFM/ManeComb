@@ -1,5 +1,3 @@
-const PENDING_TRANSACTION_TIMEOUT_MS = 15000;
-
 const pendingByMessageId = new Map();
 
 function normalizeMessageId(value) {
@@ -19,10 +17,11 @@ function getPendingChatWrite(messageId) {
 }
 
 async function settleContext(context, outcome, error = null) {
-  if (!context || context.settled) return;
-  context.settled = true;
-  clearTimeout(context.timeout);
-  pendingByMessageId.delete(context.messageId);
+  if (!context || context.settled || context.settling) return;
+  context.settling = true;
+
+  let finalOutcome = outcome;
+  let finalError = error;
 
   try {
     if (outcome === "committed") {
@@ -30,9 +29,18 @@ async function settleContext(context, outcome, error = null) {
     } else if (context.session.inTransaction()) {
       await context.session.abortTransaction();
     }
+  } catch (settleError) {
+    finalError = settleError;
+    finalOutcome = outcome === "committed" ? "commit_unknown" : "abort_failed";
+    throw settleError;
   } finally {
+    context.settled = true;
+    context.settling = false;
+    if (pendingByMessageId.get(context.messageId) === context) {
+      pendingByMessageId.delete(context.messageId);
+    }
     await context.session.endSession().catch(() => undefined);
-    context.resolveDone({ outcome, error });
+    context.resolveDone({ outcome: finalOutcome, error: finalError });
   }
 }
 
@@ -42,6 +50,11 @@ async function beginChatWriteTransaction(model, messageId) {
 
   const existing = pendingByMessageId.get(safeMessageId);
   if (existing) {
+    // Never abort the transaction that owns this deterministic message id from
+    // a timer. A background timeout could otherwise remove the session and let
+    // the aggregate update run outside the transaction, recreating the exact
+    // partial-write state this boundary exists to prevent. The owner settles
+    // explicitly on commit/abort; concurrent replays wait for that authority.
     await existing.done;
     return { retryAfterPending: true };
   }
@@ -59,13 +72,9 @@ async function beginChatWriteTransaction(model, messageId) {
     resolveDone,
     session,
     settled: false,
-    timeout: null
+    settling: false
   };
 
-  context.timeout = setTimeout(() => {
-    settleContext(context, "aborted", new Error("chat_write_transaction_timeout")).catch(() => undefined);
-  }, PENDING_TRANSACTION_TIMEOUT_MS);
-  context.timeout.unref?.();
   pendingByMessageId.set(safeMessageId, context);
   return context;
 }
