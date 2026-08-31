@@ -1,0 +1,211 @@
+name: Android Release Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_github_release:
+        description: Publish the certified candidate as a GitHub Release
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  certify-release:
+    name: Build, attest and verify signed Android release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      MANECOMB_UPLOAD_STORE_FILE: app/manecomb-release.jks
+      MANECOMB_UPLOAD_STORE_PASSWORD: ${{ secrets.MANECOMB_UPLOAD_STORE_PASSWORD }}
+      MANECOMB_UPLOAD_KEY_ALIAS: ${{ secrets.MANECOMB_UPLOAD_KEY_ALIAS }}
+      MANECOMB_UPLOAD_KEY_PASSWORD: ${{ secrets.MANECOMB_UPLOAD_KEY_PASSWORD }}
+      MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+      MANECOMB_ANDROID_KEYSTORE_BASE64: ${{ secrets.MANECOMB_ANDROID_KEYSTORE_BASE64 }}
+      MANECOMB_GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.MANECOMB_GOOGLE_SERVICES_JSON_BASE64 }}
+    steps:
+      - name: Checkout exact source commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            mobile/package-lock.json
+            ventas/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Require release secrets
+        shell: bash
+        run: |
+          test -n "$MANECOMB_ANDROID_KEYSTORE_BASE64"
+          test -n "$MANECOMB_UPLOAD_STORE_PASSWORD"
+          test -n "$MANECOMB_UPLOAD_KEY_ALIAS"
+          test -n "$MANECOMB_UPLOAD_KEY_PASSWORD"
+          test -n "$MANECOMB_GOOGLE_SERVICES_JSON_BASE64"
+          test -n "$MAPBOX_ACCESS_TOKEN"
+
+      - name: Validate architectural gates
+        run: |
+          node scripts/validate-system-audit-gates.mjs
+          node scripts/validate-system-authorities.mjs
+          node scripts/validate-environment-contract.mjs
+
+      - name: Install and test backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm test
+
+      - name: Install and certify mobile sources
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run version:check
+          npm run typecheck
+          npm run lint -- --max-warnings=0
+          npm test
+          npm run release:manifest:test
+
+      - name: Install and build Ventas
+        working-directory: ventas
+        env:
+          VITE_API_URL: https://manecomb.onrender.com/api
+          VITE_SOCKET_URL: https://manecomb.onrender.com
+        run: |
+          npm ci
+          npm run typecheck
+          npm run verify:contracts
+          npm run build
+
+      - name: Resolve immutable release identity
+        id: release
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./mobile/app.json').version")
+          BUILD=$(node -p "require('./mobile/app.json').buildNumber")
+          TAG="v${VERSION}-build.${BUILD}"
+          ARTIFACT="manecomb-${VERSION}-build.${BUILD}.apk"
+          AAB="manecomb-${VERSION}-build.${BUILD}.aab"
+          RELEASE_DATE=$(date -u +%F)
+          PUBLIC_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ARTIFACT}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          echo "aab=$AAB" >> "$GITHUB_OUTPUT"
+          echo "release_date=$RELEASE_DATE" >> "$GITHUB_OUTPUT"
+          echo "public_url=$PUBLIC_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize signing and Firebase configuration
+        working-directory: mobile
+        shell: bash
+        run: |
+          printf '%s' "$MANECOMB_ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/manecomb-release.jks
+          printf '%s' "$MANECOMB_GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > android/app/google-services.json
+          chmod +x android/gradlew
+
+      - name: Build signed APK and AAB
+        working-directory: mobile
+        run: npm run android:release
+
+      - name: Create and verify provenance manifest
+        working-directory: mobile
+        shell: bash
+        run: |
+          node scripts/release-manifest.js create \
+            --artifact "dist/${{ steps.release.outputs.artifact }}" \
+            --public-url "${{ steps.release.outputs.public_url }}" \
+            --release-date "${{ steps.release.outputs.release_date }}" \
+            --repository "$GITHUB_REPOSITORY"
+          node scripts/release-manifest.js verify \
+            --artifact "dist/${{ steps.release.outputs.artifact }}"
+
+      - name: Attest APK build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: mobile/dist/${{ steps.release.outputs.artifact }}
+
+      - name: Upload certified candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: manecomb-${{ steps.release.outputs.version }}-build-${{ steps.release.outputs.build }}
+          path: |
+            mobile/dist/${{ steps.release.outputs.artifact }}
+            mobile/dist/${{ steps.release.outputs.aab }}
+            mobile/dist/release-manifest.json
+            mobile/dist/app-release.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish draft-first GitHub Release
+        if: ${{ inputs.publish_github_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "${{ steps.release.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Release/tag already exists: ${{ steps.release.outputs.tag }}" >&2
+            exit 1
+          fi
+          gh release create "${{ steps.release.outputs.tag }}" \
+            "mobile/dist/${{ steps.release.outputs.artifact }}" \
+            "mobile/dist/${{ steps.release.outputs.aab }}" \
+            "mobile/dist/release-manifest.json" \
+            "mobile/dist/app-release.sha256" \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --title "ManeComb ${{ steps.release.outputs.version }} (${{ steps.release.outputs.build }})" \
+            --notes "Release certificado desde $GITHUB_SHA. Ver release-manifest.json y app-release.sha256."
+          gh release edit "${{ steps.release.outputs.tag }}" --draft=false
+
+      - name: Download published APK and compare digest
+        if: ${{ inputs.publish_github_release }}
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/manecomb-release-verify"
+          curl --fail --location --retry 5 \
+            "${{ steps.release.outputs.public_url }}" \
+            --output "$RUNNER_TEMP/manecomb-release-verify/${{ steps.release.outputs.artifact }}"
+          EXPECTED=$(node -p "require('./mobile/dist/release-manifest.json').sha256")
+          ACTUAL=$(sha256sum "$RUNNER_TEMP/manecomb-release-verify/${{ steps.release.outputs.artifact }}" | cut -d ' ' -f 1)
+          test "$EXPECTED" = "$ACTUAL"
+
+      - name: Record release authority handoff
+        shell: bash
+        run: |
+          echo "## ManeComb Android release candidate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Tag: \`${{ steps.release.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Published: \`${{ inputs.publish_github_release }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend authority must be updated only after the public digest check passes." >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          node -p "JSON.stringify(require('./mobile/dist/release-manifest.json').backendPatch, null, 2)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove materialized secrets
+        if: always()
+        working-directory: mobile
+        shell: bash
+        run: |
+          rm -f android/app/manecomb-release.jks
+          rm -f android/app/google-services.json

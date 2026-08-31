@@ -33,6 +33,10 @@ const distDir = path.join(projectRoot, 'dist');
 const outputApkPath = path.join(distDir, 'app-release.apk');
 const outputAabPath = path.join(distDir, 'app-release.aab');
 const legacyOutputApkPath = path.join(distDir, 'combis-control-standalone-release.apk');
+const appMetadata = JSON.parse(fs.readFileSync(path.join(projectRoot, 'app.json'), 'utf8'));
+const versionedArtifactBase = `manecomb-${appMetadata.version}-build.${appMetadata.buildNumber}`;
+const versionedOutputApkPath = path.join(distDir, `${versionedArtifactBase}.apk`);
+const versionedOutputAabPath = path.join(distDir, `${versionedArtifactBase}.aab`);
 const gradlePassthroughArgs = process.argv.slice(2);
 
 function readEnvFile(fileName) {
@@ -182,7 +186,9 @@ const { sdkRoot, javaHome, gradleUserHome, env } = withAndroidSdkEnv({
   CI: '1',
   NODE_ENV: 'production',
   ENVFILE: '.env.production',
-  GRADLE_USER_HOME: 'C:\\gradle-cache-combis',
+  ...(process.platform === 'win32' && !releaseEnv.GRADLE_USER_HOME
+    ? { GRADLE_USER_HOME: 'C:\\gradle-cache-combis' }
+    : {}),
 });
 
 console.log('[apk] Modo: release React Native CLI (APK + AAB)');
@@ -231,5 +237,9 @@ if (!fs.existsSync(distDir)) fs.mkdirSync(distDir, { recursive: true });
 fs.copyFileSync(releaseApkPath, outputApkPath);
 fs.copyFileSync(releaseAabPath, outputAabPath);
 fs.copyFileSync(releaseApkPath, legacyOutputApkPath);
+fs.copyFileSync(releaseApkPath, versionedOutputApkPath);
+fs.copyFileSync(releaseAabPath, versionedOutputAabPath);
 console.log(`\n[apk] OK APK release generado en: ${outputApkPath}`);
 console.log(`[apk] OK AAB release generado en: ${outputAabPath}`);
+console.log(`[apk] OK APK versionado generado en: ${versionedOutputApkPath}`);
+console.log(`[apk] OK AAB versionado generado en: ${versionedOutputAabPath}`);

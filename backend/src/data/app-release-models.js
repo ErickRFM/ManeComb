@@ -21,6 +21,9 @@ const appConfigSchema = new mongoose.Schema(
     // La version no tiene default historico. Un release existe solo despues de
     // una publicacion explicita desde la autoridad Platform.
     version: { type: String, default: "" },
+    buildNumber: { type: Number, default: null },
+    sourceCommit: { type: String, default: "" },
+    sha256: { type: String, default: "" },
     status: { type: String, default: "disponible" },
     apkUrl: { type: String, default: "" },
     androidMin: { type: String, default: "8.0" },

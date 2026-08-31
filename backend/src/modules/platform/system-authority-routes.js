@@ -4,6 +4,14 @@ const { platformAuth } = require("../../middlewares/platform-auth");
 const { requirePlatformPermission } = require("../../middlewares/platform-access");
 const { recordPlatformAction } = require("../../services/platform-audit");
 const { sanitizeText } = require("../../utils/platform-filters");
+const {
+  RELEASE_PUBLICATION_FIELDS,
+  SEMVER_PATTERN,
+  SOURCE_COMMIT_PATTERN,
+  SHA256_PATTERN,
+  isHttpUrl,
+  isReleaseDate
+} = require("../../services/app-release-certification");
 
 const router = Router();
 const readLimiter = rateLimit({
@@ -24,6 +32,8 @@ const writeLimiter = rateLimit({
 const APP_CONFIG_STRING_FIELDS = {
   name: 80,
   version: 40,
+  sourceCommit: 40,
+  sha256: 64,
   status: 40,
   apkUrl: 2048,
   androidMin: 40,
@@ -32,6 +42,7 @@ const APP_CONFIG_STRING_FIELDS = {
 };
 const APP_CONFIG_FIELDS = new Set([
   ...Object.keys(APP_CONFIG_STRING_FIELDS),
+  "buildNumber",
   "releaseNotes",
   "versionHistory"
 ]);
@@ -144,16 +155,32 @@ function buildAppConfigPatch(body = {}) {
     patch[field] = sanitizeText(body[field], maxLength);
   }
 
-  if (patch.apkUrl) {
-    try {
-      const parsed = new URL(patch.apkUrl);
-      if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
-        return { error: "apkUrl debe ser una URL http/https sin credenciales" };
-      }
-      patch.apkUrl = parsed.toString();
-    } catch {
-      return { error: "apkUrl debe ser una URL válida" };
+  if (body.buildNumber !== undefined) {
+    if (!Number.isInteger(body.buildNumber) || body.buildNumber < 1) {
+      return { error: "buildNumber debe ser un entero positivo" };
     }
+    patch.buildNumber = body.buildNumber;
+  }
+
+  if (body.version !== undefined && !SEMVER_PATTERN.test(patch.version)) {
+    return { error: "version debe usar SemVer MAYOR.MENOR.PARCHE" };
+  }
+  if (body.sourceCommit !== undefined && !SOURCE_COMMIT_PATTERN.test(patch.sourceCommit)) {
+    return { error: "sourceCommit debe ser un SHA Git completo de 40 caracteres" };
+  }
+  if (patch.sourceCommit) patch.sourceCommit = patch.sourceCommit.toLowerCase();
+  if (body.sha256 !== undefined && !SHA256_PATTERN.test(patch.sha256)) {
+    return { error: "sha256 debe ser un digest hexadecimal de 64 caracteres" };
+  }
+  if (patch.sha256) patch.sha256 = patch.sha256.toLowerCase();
+  if (body.apkUrl !== undefined && !isHttpUrl(patch.apkUrl)) {
+    return { error: "apkUrl debe ser una URL http/https sin credenciales" };
+  }
+  if (patch.apkUrl) {
+    patch.apkUrl = new URL(patch.apkUrl).toString();
+  }
+  if (body.releaseDate !== undefined && !isReleaseDate(patch.releaseDate)) {
+    return { error: "releaseDate debe usar YYYY-MM-DD" };
   }
 
   if (body.releaseNotes !== undefined) {
@@ -170,6 +197,16 @@ function buildAppConfigPatch(body = {}) {
 
   if (!Object.keys(patch).length) {
     return { error: "No hay campos de configuración para actualizar" };
+  }
+
+  const touchesPublication = RELEASE_PUBLICATION_FIELDS.some((field) => body[field] !== undefined);
+  if (touchesPublication) {
+    const missing = RELEASE_PUBLICATION_FIELDS.filter((field) => body[field] === undefined);
+    if (missing.length) {
+      return {
+        error: `La publicacion es atomica; faltan campos de procedencia: ${missing.join(", ")}`
+      };
+    }
   }
 
   return { patch };

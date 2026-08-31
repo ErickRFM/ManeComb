@@ -11,6 +11,9 @@ const APP_CONFIG_ID = "app-config";
 const APP_CONFIG_FIELDS = [
   "name",
   "version",
+  "buildNumber",
+  "sourceCommit",
+  "sha256",
   "status",
   "apkUrl",
   "androidMin",

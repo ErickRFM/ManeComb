@@ -96,6 +96,20 @@ MANECOMB_UPLOAD_STORE_PASSWORD=<local>
 MANECOMB_UPLOAD_KEY_PASSWORD=<local>
 ```
 
+GitHub Actions usa los mismos valores mediante secretos, además de los dos
+archivos codificados en Base64:
+
+- `MANECOMB_ANDROID_KEYSTORE_BASE64`
+- `MANECOMB_UPLOAD_STORE_PASSWORD`
+- `MANECOMB_UPLOAD_KEY_ALIAS`
+- `MANECOMB_UPLOAD_KEY_PASSWORD`
+- `MANECOMB_GOOGLE_SERVICES_JSON_BASE64`
+- `MAPBOX_ACCESS_TOKEN`
+
+El workflow manual `.github/workflows/android-release-candidate.yml` falla antes
+del build si falta cualquiera. Ningún valor o archivo materializado se conserva
+como artefacto.
+
 ## Build
 
 Desde `mobile/`:
@@ -119,7 +133,39 @@ El script usa una unidad temporal corta si detecta rutas largas de OneDrive.
 ```text
 mobile/dist/app-release.apk
 mobile/dist/app-release.aab
+mobile/dist/manecomb-<version>-build.<buildNumber>.apk
+mobile/dist/manecomb-<version>-build.<buildNumber>.aab
 ```
+
+Los nombres genéricos preservan compatibilidad local. Sólo el nombre versionado
+se publica. Después del build se crea la evidencia reproducible:
+
+```powershell
+npm run release:manifest -- --artifact dist/manecomb-1.3.0-build.22.apk `
+  --public-url https://github.com/ErickRFM/ManeComb/releases/download/v1.3.0-build.22/manecomb-1.3.0-build.22.apk `
+  --release-date 2026-08-30
+npm run release:verify -- --artifact dist/manecomb-1.3.0-build.22.apk
+```
+
+Esto genera `release-manifest.json` y `app-release.sha256`. El manifiesto liga
+versión, build, commit Git completo, nombre, bytes, SHA-256, URL pública y el
+patch exacto de la autoridad Platform. El comando rechaza un árbol rastreado
+sucio para impedir atribuir un binario a un commit distinto.
+
+## Publicación y autoridad
+
+El canal actual es GitHub Releases porque el repositorio es público y el APK
+supera el límite por archivo de Cloudflare Pages. El workflow crea primero un
+draft, publica los artefactos, descarga el APK desde la URL anónima y compara su
+digest antes del handoff. R2 con dominio propio puede añadirse como espejo
+posterior; no sustituye la autoridad ni se habilita sin bucket/dominio/secretos.
+
+Sólo después de verificar la descarga se aplica `backendPatch` del manifiesto a
+`PATCH /api/platform/system/app/info` con una sesión `platform_owner`. El
+backend exige atómicamente `version`, `buildNumber`, `sourceCommit`, `sha256`,
+`apkUrl` y `releaseDate`; `/api/app/info` responde 503 si falta cualquiera. Para
+rollback se vuelve a publicar de forma atómica el manifiesto de un release
+anterior cuyo digest ya fue verificado.
 
 Resultado validado el 2026-06-11:
 

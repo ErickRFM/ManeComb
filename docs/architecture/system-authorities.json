@@ -570,7 +570,10 @@
       "owner": "mobile",
       "status": "canonical",
       "sourcePaths": [
-        "mobile/app.json"
+        "mobile/app.json",
+        "mobile/scripts/app-version.js",
+        "mobile/scripts/build-android-apk.js",
+        "mobile/scripts/release-manifest.js"
       ],
       "consumers": [
         "mobile",
@@ -587,7 +590,10 @@
         "backend/src/data/repositories/app-release-repository.js",
         "backend/src/data/app-release-models.js",
         "backend/src/modules/app",
-        "backend/src/modules/platform/system-authority-routes.js"
+        "backend/src/modules/platform/system-authority-routes.js",
+        "backend/src/services/app-release-certification.js",
+        "mobile/scripts/release-manifest.js",
+        ".github/workflows/android-release-candidate.yml"
       ],
       "consumers": [
         "mobile",

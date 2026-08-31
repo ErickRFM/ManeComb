@@ -1,4 +1,7 @@
 const { Router } = require("express");
+const {
+  getReleaseCertificationErrors
+} = require("../../services/app-release-certification");
 
 const router = Router();
 
@@ -13,13 +16,20 @@ router.get("/info", async (req, res, next) => {
     const appConfig = store?.getAppConfig
       ? await Promise.resolve(store.getAppConfig())
       : null;
-    const publishedVersion = String(appConfig?.version || "").trim();
-
-    if (!appConfig || !publishedVersion) {
+    if (!appConfig) {
       return res.status(503).json({
         ok: false,
         code: "app_release_not_configured",
         message: "La informacion publica de la aplicacion no esta configurada"
+      });
+    }
+
+    const certificationErrors = getReleaseCertificationErrors(appConfig);
+    if (certificationErrors.length) {
+      return res.status(503).json({
+        ok: false,
+        code: "app_release_not_certified",
+        message: "La publicacion de la aplicacion no tiene procedencia completa"
       });
     }
 

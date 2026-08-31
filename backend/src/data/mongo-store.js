@@ -4490,6 +4490,9 @@ async function createMongoStore() {
 
     if (data.name !== undefined) appConfig.name = data.name;
     if (data.version !== undefined) appConfig.version = data.version;
+    if (data.buildNumber !== undefined) appConfig.buildNumber = data.buildNumber;
+    if (data.sourceCommit !== undefined) appConfig.sourceCommit = data.sourceCommit;
+    if (data.sha256 !== undefined) appConfig.sha256 = data.sha256;
     if (data.status !== undefined) appConfig.status = data.status;
     if (data.apkUrl !== undefined) appConfig.apkUrl = data.apkUrl;
     if (data.androidMin !== undefined) appConfig.androidMin = data.androidMin;

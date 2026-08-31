@@ -19,6 +19,7 @@ const { APP_URL, PASSWORD_RESET_PUBLIC_URL } = require("../../config/env");
 const communication = require("../../../modules/communication");
 const logger = require("../../services/logger");
 const { sendSecurityChangeEmail } = require("../../services/domain-email-events");
+const { isCertifiedAppRelease } = require("../../services/app-release-certification");
 const {
   createDeliveryResult,
   isDeliveryFailed
@@ -41,7 +42,7 @@ async function getAppUpdateInfo(store, currentVersion) {
     const appConfig = store?.getAppConfig
       ? await Promise.resolve(store.getAppConfig())
       : null;
-    if (!appConfig) return {};
+    if (!isCertifiedAppRelease(appConfig)) return {};
 
     const publishedVersion = appConfig.version;
     if (!publishedVersion) return {};

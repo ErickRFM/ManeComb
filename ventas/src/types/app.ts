@@ -692,6 +692,9 @@ export type PortalAppVersion = {
 export type PortalAppInfo = {
   name: string;
   version: string;
+  buildNumber: number;
+  sourceCommit: string;
+  sha256: string;
   status?: string;
   apkUrl: string;
   androidMin: string;
