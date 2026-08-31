@@ -4,8 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, Typography } from '@/constants/theme';
-import { changePasswordRequest } from '@/src/api/account-security';
-import { getApiErrorMessage } from '@/src/api/client';
 import { AppCard } from '@/src/components/app-card';
 import { AppShell } from '@/src/components/app-shell';
 import { PrimaryButton } from '@/src/components/primary-button';
@@ -13,9 +11,9 @@ import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
 import { formatRole } from '@/src/utils/format';
-import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
 import { pickProfileAvatarDataUrl } from '@/src/utils/profile-avatar';
 import { Field } from './profile-edit/components/field';
+import { PasswordChangeSection } from './profile-edit/components/password-change-section';
 
 type PersonalProfileForm = {
   name: string;
@@ -24,26 +22,12 @@ type PersonalProfileForm = {
   avatarUrl: string | null;
 };
 
-type SecurityForm = {
-  currentPassword: string;
-  newPassword: string;
-  confirmPassword: string;
-};
-
 function createPersonalProfileForm(): PersonalProfileForm {
   return {
     name: '',
     email: '',
     phone: '',
     avatarUrl: null,
-  };
-}
-
-function createSecurityForm(): SecurityForm {
-  return {
-    currentPassword: '',
-    newPassword: '',
-    confirmPassword: '',
   };
 }
 
@@ -58,19 +42,11 @@ export function DriverProfileEditScreen() {
   );
   const initializedUserIdRef = useRef<string | null>(null);
   const [form, setForm] = useState<PersonalProfileForm>(createPersonalProfileForm);
-  const [securityForm, setSecurityForm] = useState<SecurityForm>(createSecurityForm);
   const [message, setMessage] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [securityMessage, setSecurityMessage] = useState<string | null>(null);
-  const [securitySuccess, setSecuritySuccess] = useState(false);
-  const [isSecuritySaving, setIsSecuritySaving] = useState(false);
   const [photoMessage, setPhotoMessage] = useState<string | null>(null);
   const [photoSuccess, setPhotoSuccess] = useState(false);
   const [isPhotoSaving, setIsPhotoSaving] = useState(false);
-  const passwordStrength = useMemo(
-    () => getPasswordStrength(securityForm.newPassword),
-    [securityForm.newPassword]
-  );
   const styles = useMemo(createStyles, []);
 
   useEffect(() => {
@@ -87,15 +63,10 @@ export function DriverProfileEditScreen() {
       phone: user.phone || '',
       avatarUrl: user.avatarUrl || null,
     });
-    setSecurityForm(createSecurityForm());
   }, [user]);
 
   const updateField = <K extends keyof PersonalProfileForm>(field: K, value: PersonalProfileForm[K]) => {
     setForm((current) => ({ ...current, [field]: value }));
-  };
-
-  const updateSecurityField = <K extends keyof SecurityForm>(field: K, value: SecurityForm[K]) => {
-    setSecurityForm((current) => ({ ...current, [field]: value }));
   };
 
   const handlePhotoUpload = async () => {
@@ -151,54 +122,6 @@ export function DriverProfileEditScreen() {
 
     setSuccess(true);
     setMessage('Perfil actualizado. Los administradores verán estos datos en el directorio.');
-  };
-
-  const handlePasswordChange = async () => {
-    if (isSecuritySaving) return;
-
-    setSecurityMessage(null);
-    setSecuritySuccess(false);
-
-    const currentPassword = securityForm.currentPassword;
-    const newPassword = securityForm.newPassword.trim();
-    const confirmPassword = securityForm.confirmPassword.trim();
-
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setSecurityMessage('Completa tu contraseña actual, la nueva y la confirmación.');
-      return;
-    }
-    if (!isStrongPassword(newPassword)) {
-      setSecurityMessage(
-        `La nueva contraseña debe tener mínimo ${PASSWORD_MIN_LENGTH} caracteres, letras, números y un carácter especial.`
-      );
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setSecurityMessage('La confirmación no coincide con la nueva contraseña.');
-      return;
-    }
-    if (currentPassword === newPassword) {
-      setSecurityMessage('La nueva contraseña debe ser diferente de la actual.');
-      return;
-    }
-
-    setIsSecuritySaving(true);
-    try {
-      const result = await changePasswordRequest({
-        currentPassword,
-        newPassword,
-        confirmPassword,
-      });
-      setSecuritySuccess(true);
-      setSecurityMessage(result.message || 'Contraseña actualizada.');
-      setSecurityForm(createSecurityForm());
-    } catch (error) {
-      setSecurityMessage(
-        getApiErrorMessage(error, 'No se pudo cambiar la contraseña. Intenta nuevamente.')
-      );
-    } finally {
-      setIsSecuritySaving(false);
-    }
   };
 
   if (!user) return null;
@@ -259,39 +182,11 @@ export function DriverProfileEditScreen() {
           <Field label="Teléfono" value={form.phone} onChangeText={(value) => updateField('phone', value)} placeholder="+52 55 0000 0000" keyboardType="phone-pad" />
           <Text style={[styles.scopeNote, { color: theme.colors.muted, borderColor: theme.colors.line }]}>{isDriver ? 'La unidad, turno, horario operativo y rol los administra tu empresa. Tus documentos se gestionan desde “Mis documentos”.' : 'El rol, asignaciones y configuración de la empresa se administran con las herramientas de la cuenta empresarial.'}</Text>
           {message ? <Text style={[styles.message, { color: success ? theme.colors.success : theme.colors.danger }]}>{message}</Text> : null}
-          <PrimaryButton label={isSubmitting ? 'Guardando...' : 'Guardar cambios'} disabled={isSubmitting || isPhotoSaving || isSecuritySaving} onPress={() => void handleSave()} />
+          <PrimaryButton label={isSubmitting ? 'Guardando...' : 'Guardar cambios'} disabled={isSubmitting || isPhotoSaving} onPress={() => void handleSave()} />
         </View>
       </AppCard>
 
-      <AppCard>
-        <View style={styles.form}>
-          <View style={styles.securityHeading}>
-            <MaterialCommunityIcons name="shield-lock-outline" size={20} color={theme.colors.text} />
-            <View style={styles.securityHeadingCopy}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Seguridad</Text>
-              <Text style={[styles.meta, { color: theme.colors.muted }]}>Cambiar la contraseña requiere validar la actual y cerrará las demás sesiones abiertas.</Text>
-            </View>
-          </View>
-          <Field label="Contraseña actual" value={securityForm.currentPassword} onChangeText={(value) => updateSecurityField('currentPassword', value)} placeholder="Tu contraseña actual" secureTextEntry />
-          <Field label="Nueva contraseña" value={securityForm.newPassword} onChangeText={(value) => updateSecurityField('newPassword', value)} placeholder="Nueva contraseña" secureTextEntry />
-          {securityForm.newPassword.trim() ? (
-            <Text style={[styles.passwordHint, { color: passwordStrength.tone === 'positive' ? theme.colors.success : passwordStrength.tone === 'warning' ? theme.colors.warning : theme.colors.danger }]}>
-              Seguridad: {passwordStrength.label}
-            </Text>
-          ) : null}
-          <Field label="Confirmar nueva contraseña" value={securityForm.confirmPassword} onChangeText={(value) => updateSecurityField('confirmPassword', value)} placeholder="Repite la nueva contraseña" secureTextEntry />
-          {securityMessage ? (
-            <Text style={[styles.message, { color: securitySuccess ? theme.colors.success : theme.colors.danger }]}>
-              {securityMessage}
-            </Text>
-          ) : null}
-          <PrimaryButton
-            label={isSecuritySaving ? 'Actualizando seguridad...' : 'Cambiar contraseña'}
-            disabled={isSecuritySaving || isSubmitting || isPhotoSaving}
-            onPress={() => void handlePasswordChange()}
-          />
-        </View>
-      </AppCard>
+      <PasswordChangeSection disabled={isSubmitting || isPhotoSaving} />
     </AppShell>
   );
 }
@@ -318,9 +213,6 @@ function createStyles() {
     meta: { fontFamily: Typography.body, fontSize: 13, lineHeight: 19 },
     form: { gap: 14 },
     sectionTitle: { fontFamily: Typography.display, fontSize: 18, fontWeight: '900' },
-    securityHeading: { alignItems: 'flex-start', flexDirection: 'row', gap: 10 },
-    securityHeadingCopy: { flex: 1, gap: 3 },
-    passwordHint: { fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
     scopeNote: { borderTopWidth: 1, fontFamily: Typography.body, fontSize: 12, lineHeight: 19, paddingTop: 12 },
     message: { fontFamily: Typography.body, fontSize: 13, fontWeight: '800', lineHeight: 19 },
   });

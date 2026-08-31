@@ -38,6 +38,28 @@ async function run() {
     assert.equal(firstLogin.status, 200);
     assert.equal(secondLogin.status, 200);
 
+    const reusesCurrent = await requestJson(
+      baseUrl,
+      "POST",
+      "/users/me/change-password",
+      {
+        currentPassword: "Ruta123!",
+        newPassword: "Ruta123!",
+        confirmPassword: "Ruta123!"
+      },
+      firstLogin.payload.token
+    );
+    assert.equal(reusesCurrent.status, 409);
+
+    const sessionAfterRejectedReuse = await requestJson(
+      baseUrl,
+      "GET",
+      "/account/sessions",
+      undefined,
+      firstLogin.payload.token
+    );
+    assert.equal(sessionAfterRejectedReuse.status, 200);
+
     const mismatch = await requestJson(
       baseUrl,
       "POST",

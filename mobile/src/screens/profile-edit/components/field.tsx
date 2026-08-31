@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View, type TextInputProps } from 'react-native';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { getTextInputProps } from '@/src/utils/text-input-props';
 import { createStyles } from '../profile-edit-screen.styles';
@@ -11,7 +11,9 @@ type FieldProps = {
   placeholder: string;
   keyboardType?: 'default' | 'email-address' | 'phone-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  autoComplete?: TextInputProps['autoComplete'];
   secureTextEntry?: boolean;
+  textContentType?: TextInputProps['textContentType'];
 };
 
 export function Field({
@@ -21,7 +23,9 @@ export function Field({
   placeholder,
   keyboardType = 'default',
   autoCapitalize = 'sentences',
+  autoComplete,
   secureTextEntry = false,
+  textContentType,
 }: FieldProps) {
   const { theme } = useAppTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -31,7 +35,7 @@ export function Field({
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         {...getTextInputProps(theme, {
-          autoComplete: secureTextEntry ? 'current-password' : 'off',
+          autoComplete: autoComplete || (secureTextEntry ? 'current-password' : 'off'),
           returnKeyType: 'done',
           submitBehavior: 'blurAndSubmit',
         })}
@@ -42,6 +46,8 @@ export function Field({
         keyboardType={keyboardType}
         autoCapitalize={autoCapitalize}
         secureTextEntry={secureTextEntry}
+        textContentType={textContentType}
+        accessibilityLabel={label}
         style={styles.input}
       />
     </View>

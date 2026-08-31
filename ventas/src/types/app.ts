@@ -63,7 +63,28 @@ export type UserMutationPayload = {
   preferredMethod?: PaymentProfile['preferredMethod'];
 };
 
-export type ProfileMutationPayload = UserMutationPayload;
+export type ProfileMutationPayload = {
+  name?: string;
+  email?: string;
+  phone?: string;
+  avatarUrl?: string | null;
+  companyName?: string;
+  legalName?: string;
+  taxId?: string;
+  billingEmail?: string;
+  billingAddress?: string;
+  preferredMethod?: PaymentProfile['preferredMethod'];
+  cardholderName?: string;
+  cardBrand?: string;
+  cardLast4?: string;
+  cardExpMonth?: string;
+  cardExpYear?: string;
+  customerReference?: string;
+  e2eePublicKey?: string;
+  e2eeKeyRotatedAt?: string;
+  companyProfile?: Partial<CompanyProfile>;
+  paymentProfile?: Partial<PaymentProfile>;
+};
 
 export type User = {
   id: string;

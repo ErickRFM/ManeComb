@@ -100,7 +100,7 @@ import type {
   LoginResult,
   LiveLocationsData,
   NotificationItem,
-  ProfileMutationPayload,
+  SelfProfileMutationPayload,
   DriverActivationRegisterPayload,
   RegisterPayload,
   User,
@@ -343,7 +343,7 @@ export type AppState = {
     sessionId?: string | null;
   }) => Promise<ActionResult>;
   loadUsers: () => Promise<void>;
-  updateProfile: (payload: ProfileMutationPayload) => Promise<ActionResult>;
+  updateProfile: (payload: SelfProfileMutationPayload) => Promise<ActionResult>;
   setThemeMode: (mode: ThemeMode) => Promise<void>;
   loadConversation: (conversationId: string) => Promise<void>;
   loadChatConversation: (conversationId: string) => Promise<void>;

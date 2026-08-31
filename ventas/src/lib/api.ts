@@ -12,6 +12,7 @@ import type {
   PortalOverview,
   PortalSession,
   PortalSubscription,
+  ProfileMutationPayload,
   DriverLifecycleImpact,
   VehicleLifecycleImpact,
   RouteEvent,
@@ -329,7 +330,7 @@ export async function deleteUserRequest(userId: string) {
   await apiClient.delete(`/users/${encodeURIComponent(userId)}`);
 }
 
-export async function updateProfileRequest(payload: any) {
+export async function updateProfileRequest(payload: ProfileMutationPayload) {
   return await unwrapData<any>(apiClient.patch('/users/me', payload));
 }
 

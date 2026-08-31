@@ -218,7 +218,7 @@ export function PlanCheckoutScreen() {
           cardExpYear: expiry.year,
           customerReference: createDemoPaymentReference(),
         },
-      } as never);
+      });
 
       if (!result.ok) {
         setCardDemoMessage(result.message || 'No fue posible guardar la tarjeta.');

@@ -62,13 +62,11 @@ export type OperationalSchedule = {
   timezone?: string | null;
 };
 
-export type ProfileMutationPayload = {
+export type SelfProfileMutationPayload = {
   name?: string;
   email?: string;
-  password?: string;
   phone?: string;
   avatarUrl?: string | null;
-  userStatus?: UserAccountStatus;
   companyName?: string;
   legalName?: string;
   taxId?: string;
@@ -85,7 +83,6 @@ export type ProfileMutationPayload = {
   e2eeKeyRotatedAt?: string;
   companyProfile?: Partial<CompanyProfile>;
   paymentProfile?: Partial<PaymentProfile>;
-  operationalSchedule?: Partial<OperationalSchedule> | null;
 };
 
 export type User = {

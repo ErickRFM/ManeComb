@@ -10,17 +10,16 @@ import { PrimaryButton } from '@/src/components/primary-button';
 import { UserAvatar } from '@/src/components/user-avatar';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import { useAppStore } from '@/src/store/use-app-store';
-import { getPasswordStrength, isStrongPassword, PASSWORD_MIN_LENGTH } from '@/src/utils/password-strength';
 import { formatRole } from '@/src/utils/format';
 import { pickProfileAvatarDataUrl } from '@/src/utils/profile-avatar';
 import { Field } from './profile-edit/components/field';
+import { PasswordChangeSection } from './profile-edit/components/password-change-section';
 import { createStyles } from './profile-edit/profile-edit-screen.styles';
 
 type ProfileForm = {
   name: string;
   email: string;
   phone: string;
-  password: string;
   avatarUrl: string | null;
   companyName: string;
   legalName: string;
@@ -41,7 +40,6 @@ function createProfileForm(): ProfileForm {
     name: '',
     email: '',
     phone: '',
-    password: '',
     avatarUrl: null,
     companyName: '',
     legalName: '',
@@ -78,10 +76,6 @@ export function ProfileEditScreen() {
   const [photoTone, setPhotoTone] = useState<'danger' | 'success'>('success');
   const [isPhotoSaving, setIsPhotoSaving] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileForm>(createProfileForm);
-  const passwordStrength = useMemo(
-    () => getPasswordStrength(profileForm.password),
-    [profileForm.password]
-  );
   const { width } = useWindowDimensions();
   const isPhone = width < DesignSystem.breakpoints.phone;
   const styles = useMemo(() => createStyles(theme, isPhone), [theme, isPhone]);
@@ -98,7 +92,6 @@ export function ProfileEditScreen() {
       name: user.name,
       email: user.email,
       phone: user.phone,
-      password: '',
       avatarUrl: user.avatarUrl || null,
       companyName: user.companyProfile?.companyName || '',
       legalName: user.companyProfile?.legalName || '',
@@ -183,13 +176,6 @@ export function ProfileEditScreen() {
       return;
     }
 
-    if (profileForm.password.trim() && !isStrongPassword(profileForm.password.trim())) {
-      setMessage(
-        `La nueva contrasena debe tener minimo ${PASSWORD_MIN_LENGTH} caracteres, letras, numeros y un caracter especial.`
-      );
-      return;
-    }
-
     const result = await updateProfile({
       name: profileForm.name.trim(),
       email: profileForm.email.trim(),
@@ -211,7 +197,6 @@ export function ProfileEditScreen() {
         cardExpYear: profileForm.cardExpYear.replace(/[^\d]/g, '').slice(-2),
         customerReference: profileForm.customerReference.trim(),
       },
-      ...(profileForm.password.trim() ? { password: profileForm.password.trim() } : {}),
     });
 
     if (!result.ok) {
@@ -219,7 +204,6 @@ export function ProfileEditScreen() {
       return;
     }
 
-    setProfileForm((current) => ({ ...current, password: '' }));
     setMessage('Informacion actualizada correctamente.', 'success');
   };
 
@@ -324,29 +308,6 @@ export function ProfileEditScreen() {
             placeholder="+52 55 0000 0000"
             keyboardType="phone-pad"
           />
-          <Field
-            label="Nueva contrasena"
-            value={profileForm.password}
-            onChangeText={(value) => updateField('password', value)}
-            placeholder="Nueva contrasena"
-            secureTextEntry
-          />
-          {profileForm.password.trim() ? (
-            <View style={styles.passwordHelperCard}>
-              <Text style={styles.passwordHelperTitle}>Seguridad de contrasena</Text>
-              <Text
-                style={[
-                  styles.passwordHelperValue,
-                  passwordStrength.tone === 'positive'
-                    ? styles.passwordHelperValueStrong
-                    : passwordStrength.tone === 'warning'
-                      ? styles.passwordHelperValueMedium
-                      : styles.passwordHelperValueWeak,
-                ]}>
-                {passwordStrength.label}
-              </Text>
-            </View>
-          ) : null}
         </View>
 
         <View
@@ -493,6 +454,7 @@ export function ProfileEditScreen() {
           />
         </View>
       </AppCard>
+      <PasswordChangeSection disabled={isSubmitting || isPhotoSaving} />
     </AppShell>
   );
 }

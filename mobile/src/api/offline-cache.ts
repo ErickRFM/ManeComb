@@ -9,10 +9,14 @@ import type {
   LiveLocationsData,
   NotificationItem,
   AuthRoutingContext,
-  ProfileMutationPayload,
+  SelfProfileMutationPayload,
   RouteSession,
   User,
 } from '@/src/types/app';
+import {
+  hasSelfProfileMutationFields,
+  sanitizeSelfProfilePayload,
+} from '@/src/api/self-profile-authority';
 
 const CACHE_KEY = 'manecomb:offline-cache:v1';
 const QUEUE_KEY = 'manecomb:pending-sync:v1';
@@ -133,7 +137,7 @@ export type PendingSyncOperation =
       type: 'user:updateProfile';
       createdAt: string;
       attempts: number;
-      payload: ProfileMutationPayload;
+      payload: SelfProfileMutationPayload;
     }
   | {
       id: string;
@@ -229,12 +233,58 @@ function serializePendingSyncMutation<T>(mutation: () => Promise<T>): Promise<T>
   return operation;
 }
 
+function sanitizePendingSyncOperation(
+  operation: PendingSyncOperation
+): PendingSyncOperation | null {
+  if (!operation || typeof operation !== 'object') return null;
+  if (operation.type !== 'user:updateProfile') return operation;
+
+  const payload = sanitizeSelfProfilePayload(operation.payload);
+  if (!hasSelfProfileMutationFields(payload)) return null;
+
+  return { ...operation, payload };
+}
+
+function sanitizePendingSyncQueue(queue: PendingSyncOperation[]) {
+  let changed = false;
+  const sanitized: PendingSyncOperation[] = [];
+
+  for (const operation of queue) {
+    const nextOperation = sanitizePendingSyncOperation(operation);
+    if (!nextOperation) {
+      changed = true;
+      continue;
+    }
+    if (
+      operation.type === 'user:updateProfile'
+      && JSON.stringify(operation.payload) !== JSON.stringify(nextOperation.payload)
+    ) {
+      changed = true;
+    }
+    sanitized.push(nextOperation);
+  }
+
+  return { changed, queue: sanitized };
+}
+
+async function persistPendingSyncQueueUnsafe(queue: PendingSyncOperation[]) {
+  await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue.slice(-MAX_QUEUE_ITEMS)));
+}
+
 async function readPendingSyncQueueUnsafe() {
-  return safeJsonParse<PendingSyncOperation[]>(await AsyncStorage.getItem(QUEUE_KEY)) || [];
+  const parsed = safeJsonParse<unknown>(await AsyncStorage.getItem(QUEUE_KEY));
+  if (!Array.isArray(parsed)) return [];
+
+  const sanitized = sanitizePendingSyncQueue(parsed as PendingSyncOperation[]);
+  if (sanitized.changed) {
+    await persistPendingSyncQueueUnsafe(sanitized.queue);
+  }
+  return sanitized.queue;
 }
 
 async function writePendingSyncQueueUnsafe(queue: PendingSyncOperation[]) {
-  await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue.slice(-MAX_QUEUE_ITEMS)));
+  const sanitized = sanitizePendingSyncQueue(queue);
+  await persistPendingSyncQueueUnsafe(sanitized.queue);
 }
 
 export async function loadOfflineCache() {
@@ -287,8 +337,7 @@ export async function loadPendingSyncQueue() {
   // Para GPS, la misma lectura es el boundary de replay: deriva edad de cola a
   // partir de `createdAt` justo antes de enviar, sin confiar en el reloj servidor
   // ni congelar la edad dentro del payload persistido.
-  await pendingSyncMutationTail;
-  const queue = await readPendingSyncQueueUnsafe();
+  const queue = await serializePendingSyncMutation(readPendingSyncQueueUnsafe);
   const nowMs = Date.now();
   return queue.map((operation) => hydratePendingSyncOperationForReplay(operation, nowMs));
 }
@@ -304,12 +353,15 @@ export async function enqueuePendingSyncOperation(
 ) {
   return serializePendingSyncMutation(async () => {
     const queue = await readPendingSyncQueueUnsafe();
-    const nextOperation = {
+    const nextOperation = sanitizePendingSyncOperation({
       ...operation,
       id: createOperationId(operation.type),
       createdAt: new Date().toISOString(),
       attempts: 0,
-    } as PendingSyncOperation;
+    } as PendingSyncOperation);
+    if (!nextOperation) {
+      throw new Error('La actualización de perfil no contiene campos self-service permitidos.');
+    }
 
     await writePendingSyncQueueUnsafe([...queue, nextOperation]);
     return nextOperation;
@@ -319,8 +371,12 @@ export async function enqueuePendingSyncOperation(
 export async function replacePendingSyncOperation(operation: PendingSyncOperation) {
   await serializePendingSyncMutation(async () => {
     const queue = await readPendingSyncQueueUnsafe();
+    const sanitizedOperation = sanitizePendingSyncOperation(operation);
     await writePendingSyncQueueUnsafe(
-      queue.map((entry) => (entry.id === operation.id ? operation : entry))
+      queue.flatMap((entry) => {
+        if (entry.id !== operation.id) return [entry];
+        return sanitizedOperation ? [sanitizedOperation] : [];
+      })
     );
   });
 }

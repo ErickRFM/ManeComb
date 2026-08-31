@@ -141,6 +141,92 @@ describe('cola offline de Control', () => {
     expect(new Set(restoredTexts)).toEqual(new Set(expectedTexts));
   });
 
+  it('conserva una edición normal de perfil para replay offline', async () => {
+    await enqueuePendingSyncOperation({
+      type: 'user:updateProfile',
+      payload: {
+        name: 'Empresa Offline',
+        phone: '+52 55 0000 0000',
+        companyProfile: { companyName: 'Empresa Offline' },
+      },
+    });
+
+    const restored = await loadPendingSyncQueue();
+    expect(restored).toHaveLength(1);
+    expect(restored[0]).toMatchObject({
+      type: 'user:updateProfile',
+      payload: {
+        name: 'Empresa Offline',
+        companyProfile: { companyName: 'Empresa Offline' },
+      },
+    });
+  });
+
+  it('sanea y reescribe credenciales de una cola legacy sin perder el perfil válido', async () => {
+    await AsyncStorage.setItem('manecomb:pending-sync:v1', JSON.stringify([
+      {
+        id: 'legacy-profile-password',
+        type: 'user:updateProfile',
+        createdAt: '2026-08-30T20:00:00.000Z',
+        attempts: 1,
+        payload: {
+          name: 'Empresa Legacy',
+          password: 'NuncaPersistir123!',
+          currentPassword: 'Actual123!',
+          newPassword: 'Nueva123!',
+          confirmPassword: 'Nueva123!',
+          userStatus: 'suspended',
+          companyProfile: { companyName: 'Empresa Legacy', password: 'Nested123!' },
+        },
+      },
+    ]));
+
+    const restored = await loadPendingSyncQueue();
+    expect(restored).toEqual([
+      expect.objectContaining({
+        id: 'legacy-profile-password',
+        type: 'user:updateProfile',
+        payload: {
+          name: 'Empresa Legacy',
+          companyProfile: { companyName: 'Empresa Legacy' },
+        },
+      }),
+    ]);
+
+    const persisted = await AsyncStorage.getItem('manecomb:pending-sync:v1');
+    expect(persisted).not.toMatch(/NuncaPersistir|Actual123|Nueva123|Nested123/);
+    const persistedPayload = JSON.stringify(JSON.parse(persisted || '[]')[0]?.payload || {});
+    expect(persistedPayload).not.toMatch(
+      /password|currentPassword|newPassword|confirmPassword|userStatus/
+    );
+  });
+
+  it('elimina una operación legacy que sólo contenía credenciales', async () => {
+    await AsyncStorage.setItem('manecomb:pending-sync:v1', JSON.stringify([
+      {
+        id: 'legacy-only-password',
+        type: 'user:updateProfile',
+        createdAt: '2026-08-30T20:00:00.000Z',
+        attempts: 0,
+        payload: { password: 'NuncaPersistir123!' },
+      },
+    ]));
+
+    expect(await loadPendingSyncQueue()).toEqual([]);
+    expect(await AsyncStorage.getItem('manecomb:pending-sync:v1')).toBe('[]');
+  });
+
+  it('sanea también una llamada runtime no tipada antes de persistir', async () => {
+    await enqueuePendingSyncOperation({
+      type: 'user:updateProfile',
+      payload: { name: 'Runtime Seguro', password: 'NuncaPersistir123!' },
+    } as never);
+
+    const persisted = await AsyncStorage.getItem('manecomb:pending-sync:v1');
+    expect(persisted).toContain('Runtime Seguro');
+    expect(persisted).not.toMatch(/password|NuncaPersistir/);
+  });
+
   it('serializa remove y enqueue para no resucitar ni borrar operaciones', async () => {
     const first = await enqueuePendingSyncOperation({
       type: 'chat:sendMessage',
