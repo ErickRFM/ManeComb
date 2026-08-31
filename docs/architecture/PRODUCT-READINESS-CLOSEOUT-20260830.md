@@ -51,7 +51,7 @@ Este documento es el único ledger de ejecución del cierre iniciado desde
 | Opción C | GitHub Releases o Pages según visibilidad/tamaño. |
 | Trade-offs | OneDrive no ofrece procedencia ni URL inmutable; R2 es el mejor canal de marca pero requiere bucket/dominio/secretos inexistentes; Pages limita cada asset a 25 MiB; GitHub Releases es anónimo para este repo público y aporta tags, assets, digest, rollback y attestations sin otro proveedor. |
 | Decisión | GitHub Releases como canal productivo inmediato; R2 sólo como espejo futuro. Publicación atómica y fail-closed desde Platform. |
-| Archivos | Backend AppConfig/repository/rutas/certification service/tests; `mobile/scripts/build-android-apk.js`, `release-manifest.js`, workflow `android-release-candidate.yml`, tipos Ventas y runbook. |
+| Archivos | Backend AppConfig/repository/rutas/certification service/tests; `mobile/scripts/build-android-apk.js`, `release-manifest.js`, workflow `android-release-candidate.yml`, tipos Ventas y runbook. Notas, obligatoriedad e historial se publican en la misma transición. |
 | Tests | Contrato público configurado/incompleto/nulo, validación Platform, persistencia, auth update, self-test de manifiesto, suite Backend y Mobile completas. El workflow vuelve a descargar y compara SHA-256 cuando publica. |
 | Resultado | BLOCKED |
 | Razón | Código/pipeline PASS. Publicación real bloqueada: GitHub sólo contiene `MAPBOX_ACCESS_TOKEN`; faltan keystore/password/alias/key password y `google-services.json` en secrets. Sin publicar no existe URL anónima ni digest remoto que certificar. |
@@ -241,8 +241,10 @@ siendo la autoridad compilada del binario.
 - Security: los únicos datos persistibles/replayables de self-profile son la
   allowlist; credenciales usan el endpoint online dedicado y semántica de
   revocación.
-- Release: un APK sólo puede anunciarse con procedencia completa. El endpoint
-  no degrada hacia seed, URL o versión histórica.
+- Release: un APK sólo puede anunciarse con procedencia completa. Notas y
+  obligatoriedad son campos atómicos; `versionHistory` se deriva de la nueva
+  publicación y marca la previa como no actual. El endpoint no degrada hacia
+  seed, URL o versión histórica.
 - Time to value comercial: Landing → Plan → Cuenta → Pago → Onboarding → Unidad
   → Conductor → Mapa continúa sin duplicar captura. No hubo evidencia suficiente
   para alterar billing, capacidad, tenant o RBAC; se decidió NO CAMBIAR.

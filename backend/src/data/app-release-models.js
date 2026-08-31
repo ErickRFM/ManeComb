@@ -30,6 +30,7 @@ const appConfigSchema = new mongoose.Schema(
     size: { type: String, default: "" },
     releaseDate: { type: String, default: "" },
     releaseNotes: { type: [String], default: [] },
+    mandatory: { type: Boolean, default: false },
     versionHistory: { type: [appVersionHistoryEntrySchema], default: [] },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }

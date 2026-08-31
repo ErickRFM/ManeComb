@@ -53,14 +53,10 @@ async function getAppUpdateInfo(store, currentVersion) {
       return { updateAvailable: false };
     }
 
-    const latestEntry = Array.isArray(appConfig.versionHistory)
-      ? appConfig.versionHistory.find((v) => v.version === publishedVersion)
-      : null;
-
     return {
       updateAvailable: true,
       latestVersion: publishedVersion,
-      mandatory: latestEntry ? Boolean(latestEntry.mandatory) : false,
+      mandatory: appConfig.mandatory,
       releaseNotes: appConfig.releaseNotes || [],
       downloadUrl: appConfig.apkUrl || "",
     };

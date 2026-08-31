@@ -27,12 +27,13 @@ async function main() {
     apkUrl: 'https://example.test/manecomb-9.9.9.apk',
     releaseDate: '2026-08-10',
     releaseNotes: ['Session update regression'],
+    mandatory: true,
     versionHistory: [
       {
         version: '9.9.9',
         date: '2026-08-10',
         current: true,
-        mandatory: true,
+        mandatory: false,
       },
     ],
   });

@@ -701,5 +701,6 @@ export type PortalAppInfo = {
   size: string;
   releaseDate: string;
   releaseNotes: string[];
+  mandatory: boolean;
   versionHistory?: PortalAppVersion[];
 };

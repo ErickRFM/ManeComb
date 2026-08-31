@@ -43,6 +43,7 @@ const APP_CONFIG_STRING_FIELDS = {
 const APP_CONFIG_FIELDS = new Set([
   ...Object.keys(APP_CONFIG_STRING_FIELDS),
   "buildNumber",
+  "mandatory",
   "releaseNotes",
   "versionHistory"
 ]);
@@ -112,9 +113,10 @@ function serializeDeviceVersionStats(stats = {}) {
 }
 
 function sanitizeNotes(value) {
-  if (!Array.isArray(value)) return null;
+  if (!Array.isArray(value) || value.length > 20 || value.some((entry) => typeof entry !== "string")) {
+    return null;
+  }
   return value
-    .slice(0, 20)
     .map((entry) => sanitizeText(entry, 240))
     .filter(Boolean);
 }
@@ -134,6 +136,28 @@ function sanitizeVersionHistory(value) {
       mandatory: Boolean(source.mandatory)
     };
   });
+}
+
+function buildPublishedVersionHistory(currentConfig = {}, patch = {}) {
+  const sanitizedHistory = sanitizeVersionHistory(currentConfig.versionHistory) || [];
+  const previousEntries = sanitizedHistory.length
+    ? sanitizedHistory
+        .filter((entry) => String(entry?.version || "") !== patch.version)
+        .map((entry) => ({ ...entry, current: false }))
+    : [];
+  return [
+    {
+      version: patch.version,
+      date: patch.releaseDate,
+      current: true,
+      size: patch.size || "",
+      androidMin: patch.androidMin || "",
+      notes: patch.releaseNotes || [],
+      archived: false,
+      mandatory: patch.mandatory
+    },
+    ...previousEntries
+  ].slice(0, 50);
 }
 
 function buildAppConfigPatch(body = {}) {
@@ -160,6 +184,12 @@ function buildAppConfigPatch(body = {}) {
       return { error: "buildNumber debe ser un entero positivo" };
     }
     patch.buildNumber = body.buildNumber;
+  }
+  if (body.mandatory !== undefined) {
+    if (typeof body.mandatory !== "boolean") {
+      return { error: "mandatory debe ser booleano" };
+    }
+    patch.mandatory = body.mandatory;
   }
 
   if (body.version !== undefined && !SEMVER_PATTERN.test(patch.version)) {
@@ -279,6 +309,14 @@ router.patch(
         return res.status(400).json({ ok: false, code: "invalid_app_config", message: error });
       }
 
+      const isPublication = RELEASE_PUBLICATION_FIELDS.every((field) => patch[field] !== undefined);
+      if (isPublication) {
+        const currentConfig = store.getAppConfig
+          ? await Promise.resolve(store.getAppConfig())
+          : null;
+        patch.versionHistory = buildPublishedVersionHistory(currentConfig, patch);
+      }
+
       const updated = await Promise.resolve(store.updateAppConfig(patch));
       await recordPlatformAction(req, {
         action: "platform.system.app.info.update",
@@ -302,5 +340,6 @@ module.exports = {
   serializeOperationalEvent,
   serializeOperationalInsights,
   serializeDeviceVersionStats,
-  buildAppConfigPatch
+  buildAppConfigPatch,
+  buildPublishedVersionHistory
 };

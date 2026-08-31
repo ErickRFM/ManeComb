@@ -40,7 +40,17 @@ async function createContext() {
     sourceCommit: "a".repeat(40),
     sha256: "b".repeat(64),
     apkUrl: "https://github.com/ErickRFM/ManeComb/releases/download/v1.0.2/app-release.apk",
-    releaseDate: "2026-08-08"
+    releaseDate: "2026-08-08",
+    releaseNotes: ["Version anterior"],
+    mandatory: false,
+    versionHistory: [{
+      version: "1.0.2",
+      date: "2026-08-08",
+      current: true,
+      notes: ["Version anterior"],
+      mandatory: false,
+      internalSecret: "must-not-persist"
+    }]
   });
   const operationalAdmin = await store.createUser({
     name: "Legacy Operational Admin",
@@ -273,18 +283,10 @@ async function main() {
         apkUrl: "https://github.com/ErickRFM/ManeComb/releases/download/v1.0.3/app-release.apk",
         releaseDate: "2026-08-09",
         status: "disponible",
+        size: "42 MB",
+        androidMin: "8.0",
         releaseNotes: ["Autoridad global migrada"],
-        versionHistory: [{
-          version: "1.0.3",
-          date: "2026-08-09",
-          current: true,
-          size: "42 MB",
-          androidMin: "8.0",
-          notes: ["Seguridad de plataforma"],
-          archived: false,
-          mandatory: false,
-          internalSecret: "must-not-persist"
-        }]
+        mandatory: false
       }
     });
     assert.equal(ownerUpdate.response.status, 200);
@@ -293,6 +295,14 @@ async function main() {
     assert.equal(ownerUpdate.payload.data.buildNumber, 22);
     assert.equal(ownerUpdate.payload.data.sourceCommit, "c".repeat(40));
     assert.equal(ownerUpdate.payload.data.sha256, "d".repeat(64));
+    assert.equal(ownerUpdate.payload.data.mandatory, false);
+    assert.deepEqual(ownerUpdate.payload.data.versionHistory.map((entry) => ({
+      version: entry.version,
+      current: entry.current
+    })), [
+      { version: "1.0.3", current: true },
+      { version: "1.0.2", current: false }
+    ]);
     assert.equal(JSON.stringify(ownerUpdate.payload).includes("internalSecret"), false);
 
     const updatedPublicInfo = await requestJson(context.baseUrl, "/app/info");

@@ -143,7 +143,9 @@ se publica. Después del build se crea la evidencia reproducible:
 ```powershell
 npm run release:manifest -- --artifact dist/manecomb-1.3.0-build.22.apk `
   --public-url https://github.com/ErickRFM/ManeComb/releases/download/v1.3.0-build.22/manecomb-1.3.0-build.22.apk `
-  --release-date 2026-08-30
+  --release-date 2026-08-30 `
+  --release-notes-file dist/release-notes.json `
+  --mandatory false
 npm run release:verify -- --artifact dist/manecomb-1.3.0-build.22.apk
 ```
 
@@ -163,11 +165,13 @@ posterior; no sustituye la autoridad ni se habilita sin bucket/dominio/secretos.
 Sólo después de verificar la descarga se aplica `backendPatch` del manifiesto a
 `PATCH /api/platform/system/app/info` con una sesión `platform_owner`. El
 backend exige atómicamente `version`, `buildNumber`, `sourceCommit`, `sha256`,
-`apkUrl` y `releaseDate`; `/api/app/info` responde 503 si falta cualquiera. Para
+`apkUrl`, `releaseDate`, `releaseNotes` y `mandatory`; la misma operación deriva
+la entrada actual de `versionHistory` y marca la previa como no actual.
+`/api/app/info` responde 503 si falta cualquiera. Para
 rollback se vuelve a publicar de forma atómica el manifiesto de un release
 anterior cuyo digest ya fue verificado.
 
-Resultado validado el 2026-06-11:
+Registro histórico del 2026-06-11 (no es autoridad del candidato actual):
 
 - APK: `mobile/dist/app-release.apk`, 76009324 bytes.
 - AAB: `mobile/dist/app-release.aab`, 53030573 bytes.

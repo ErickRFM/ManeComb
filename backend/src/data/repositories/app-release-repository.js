@@ -20,6 +20,7 @@ const APP_CONFIG_FIELDS = [
   "size",
   "releaseDate",
   "releaseNotes",
+  "mandatory",
   "versionHistory"
 ];
 

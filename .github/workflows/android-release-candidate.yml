@@ -8,6 +8,16 @@ on:
         required: true
         default: false
         type: boolean
+      release_notes:
+        description: Public release note stored atomically with the artifact authority
+        required: true
+        default: Cierre de estabilidad y seguridad.
+        type: string
+      mandatory_update:
+        description: Require clients on an older version to update
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -131,11 +141,16 @@ jobs:
       - name: Create and verify provenance manifest
         working-directory: mobile
         shell: bash
+        env:
+          RELEASE_NOTES_INPUT: ${{ inputs.release_notes }}
         run: |
+          node -e "require('node:fs').writeFileSync('dist/release-notes.json', JSON.stringify([process.env.RELEASE_NOTES_INPUT]))"
           node scripts/release-manifest.js create \
             --artifact "dist/${{ steps.release.outputs.artifact }}" \
             --public-url "${{ steps.release.outputs.public_url }}" \
             --release-date "${{ steps.release.outputs.release_date }}" \
+            --release-notes-file "dist/release-notes.json" \
+            --mandatory "${{ inputs.mandatory_update }}" \
             --repository "$GITHUB_REPOSITORY"
           node scripts/release-manifest.js verify \
             --artifact "dist/${{ steps.release.outputs.artifact }}"

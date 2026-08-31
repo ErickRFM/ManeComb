@@ -27,7 +27,9 @@ function main() {
       artifactPath,
       sourceCommit,
       publicUrl,
-      releaseDate: '2026-08-30'
+      releaseDate: '2026-08-30',
+      releaseNotes: ['Cierre de estabilidad y seguridad.'],
+      mandatory: true
     });
 
     assert.equal(manifest.version, '1.3.0');
@@ -45,7 +47,9 @@ function main() {
       apkUrl: publicUrl,
       androidMin: '8.0',
       size: '0.0 MB',
-      releaseDate: '2026-08-30'
+      releaseDate: '2026-08-30',
+      releaseNotes: ['Cierre de estabilidad y seguridad.'],
+      mandatory: true
     });
     assert.equal(verifyReleaseManifest({ manifest, artifactPath, metadata, sourceCommit }), true);
 
@@ -70,6 +74,17 @@ function main() {
         releaseDate: '2026-02-31'
       }),
       /publicUrl|releaseDate/
+    );
+    assert.throws(
+      () => createReleaseManifest({
+        metadata,
+        artifactPath,
+        sourceCommit,
+        publicUrl,
+        releaseDate: '2026-08-30',
+        releaseNotes: [42]
+      }),
+      /releaseNotes/
     );
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });

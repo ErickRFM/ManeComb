@@ -75,6 +75,28 @@ function assertReleaseDate(value) {
   return text;
 }
 
+function normalizeReleaseNotes(value) {
+  if (!Array.isArray(value)) fail('releaseNotes debe ser un arreglo JSON de textos.');
+  if (value.length > 20 || value.some((note) => typeof note !== 'string')) {
+    fail('releaseNotes admite hasta 20 textos.');
+  }
+  return value.map((note) => note.trim().slice(0, 240)).filter(Boolean);
+}
+
+function parseMandatory(value) {
+  if (typeof value === 'boolean') return value;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  fail('mandatory debe ser true o false.');
+}
+
+function readReleaseNotes(notesPath) {
+  if (!notesPath) return [];
+  const absolutePath = path.resolve(projectRoot, notesPath);
+  if (!fs.existsSync(absolutePath)) fail(`No existe el archivo de notas: ${absolutePath}`);
+  return normalizeReleaseNotes(JSON.parse(fs.readFileSync(absolutePath, 'utf8')));
+}
+
 function formatSize(sizeBytes) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
@@ -85,6 +107,8 @@ function createReleaseManifest({
   sourceCommit,
   publicUrl,
   releaseDate,
+  releaseNotes = [],
+  mandatory = false,
   repository = 'ErickRFM/ManeComb'
 }) {
   if (!metadata || !semverPattern.test(String(metadata.version || ''))) fail('Version invalida.');
@@ -94,6 +118,8 @@ function createReleaseManifest({
 
   const normalizedUrl = assertPublicUrl(publicUrl);
   const normalizedDate = assertReleaseDate(releaseDate);
+  const normalizedNotes = normalizeReleaseNotes(releaseNotes);
+  const normalizedMandatory = parseMandatory(mandatory);
   const sizeBytes = fs.statSync(artifactPath).size;
   const sha256 = sha256File(artifactPath);
   const artifactFileName = path.basename(artifactPath);
@@ -107,7 +133,9 @@ function createReleaseManifest({
     apkUrl: normalizedUrl,
     androidMin: '8.0',
     size: formatSize(sizeBytes),
-    releaseDate: normalizedDate
+    releaseDate: normalizedDate,
+    releaseNotes: normalizedNotes,
+    mandatory: normalizedMandatory
   };
 
   return {
@@ -121,6 +149,8 @@ function createReleaseManifest({
     sha256,
     sizeBytes,
     releaseDate: normalizedDate,
+    releaseNotes: normalizedNotes,
+    mandatory: normalizedMandatory,
     publicUrl: normalizedUrl,
     publicationAuthority: 'Platform PATCH /api/platform/system/app/info',
     backendPatch
@@ -146,6 +176,8 @@ function verifyReleaseManifest({ manifest, artifactPath, metadata, sourceCommit 
     sourceCommit: manifest.sourceCommit,
     publicUrl: manifest.publicUrl,
     releaseDate: manifest.releaseDate,
+    releaseNotes: manifest.releaseNotes,
+    mandatory: manifest.mandatory,
     repository: manifest.repository
   }).backendPatch;
   if (JSON.stringify(manifest.backendPatch) !== JSON.stringify(expectedPatch)) errors.push('backendPatch');
@@ -191,6 +223,8 @@ function runCli() {
       sourceCommit,
       publicUrl: options['public-url'],
       releaseDate: options['release-date'],
+      releaseNotes: readReleaseNotes(options['release-notes-file']),
+      mandatory: parseMandatory(options.mandatory || 'false'),
       repository: options.repository
     });
     writeManifest(manifest, manifestPath, checksumPath);
@@ -223,6 +257,9 @@ module.exports = {
   assertReleaseDate,
   createReleaseManifest,
   formatSize,
+  normalizeReleaseNotes,
+  parseMandatory,
+  readReleaseNotes,
   sha256File,
   verifyReleaseManifest,
   writeManifest

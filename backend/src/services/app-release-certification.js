@@ -4,7 +4,9 @@ const RELEASE_PUBLICATION_FIELDS = Object.freeze([
   "sourceCommit",
   "sha256",
   "apkUrl",
-  "releaseDate"
+  "releaseDate",
+  "releaseNotes",
+  "mandatory"
 ]);
 
 const SEMVER_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -43,6 +45,10 @@ function getReleaseCertificationErrors(config = {}) {
   if (!SHA256_PATTERN.test(sha256)) errors.push("sha256");
   if (!isHttpUrl(apkUrl)) errors.push("apkUrl");
   if (!isReleaseDate(releaseDate)) errors.push("releaseDate");
+  if (!Array.isArray(config.releaseNotes) || config.releaseNotes.some((note) => typeof note !== "string")) {
+    errors.push("releaseNotes");
+  }
+  if (typeof config.mandatory !== "boolean") errors.push("mandatory");
 
   return errors;
 }

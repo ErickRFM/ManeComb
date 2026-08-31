@@ -4499,6 +4499,7 @@ async function createMongoStore() {
     if (data.size !== undefined) appConfig.size = data.size;
     if (data.releaseDate !== undefined) appConfig.releaseDate = data.releaseDate;
     if (data.releaseNotes !== undefined) appConfig.releaseNotes = Array.isArray(data.releaseNotes) ? data.releaseNotes : [];
+    if (data.mandatory !== undefined) appConfig.mandatory = Boolean(data.mandatory);
     if (data.versionHistory !== undefined) appConfig.versionHistory = Array.isArray(data.versionHistory) ? data.versionHistory : [];
 
     appConfigStore = appConfig;

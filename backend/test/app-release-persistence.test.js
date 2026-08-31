@@ -107,13 +107,15 @@ async function main() {
     sha256: "b".repeat(64),
     apkUrl: "https://github.com/ErickRFM/ManeComb/releases/download/v1.3.0/app-release.apk",
     releaseDate: "2026-08-15",
-    releaseNotes: ["Publicacion controlada"]
+    releaseNotes: ["Publicacion controlada"],
+    mandatory: true
   });
   assert.equal(published.version, "1.3.0");
   assert.equal(published.buildNumber, 22);
   assert.equal(published.sourceCommit, "a".repeat(40));
   assert.equal(published.sha256, "b".repeat(64));
   assert.equal(published.releaseDate, "2026-08-15");
+  assert.equal(published.mandatory, true);
 
   const restarted = new AppReleaseRepository(createEmbeddedFixture(), {
     AppConfigModel: harness.AppConfigModel,
@@ -125,6 +127,7 @@ async function main() {
   assert.equal(persisted.sourceCommit, "a".repeat(40));
   assert.equal(persisted.sha256, "b".repeat(64));
   assert.equal(persisted.releaseDate, "2026-08-15");
+  assert.equal(persisted.mandatory, true);
 
   await repository.recordDeviceVersion("user-a", {
     version: "1.2.0",

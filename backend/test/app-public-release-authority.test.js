@@ -45,7 +45,9 @@ async function main() {
     sourceCommit: "a".repeat(40),
     sha256: "b".repeat(64),
     apkUrl: "https://github.com/ErickRFM/ManeComb/releases/download/v1.3.0/app-release.apk",
-    releaseDate: "2026-08-30"
+    releaseDate: "2026-08-30",
+    releaseNotes: ["Cierre certificado"],
+    mandatory: false
   });
   await withServer(configuredStore, async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/app/info`);
@@ -57,6 +59,8 @@ async function main() {
     assert.equal(payload.data.buildNumber, 22);
     assert.equal(payload.data.sourceCommit, "a".repeat(40));
     assert.equal(payload.data.sha256, "b".repeat(64));
+    assert.deepEqual(payload.data.releaseNotes, ["Cierre certificado"]);
+    assert.equal(payload.data.mandatory, false);
     assert.match(response.headers.get("cache-control") || "", /no-store/);
   });
 
