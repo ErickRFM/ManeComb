@@ -78,4 +78,8 @@ function main() {
   console.log('ok - release manifest binds version, build, commit, artifact, digest and public URL');
 }
 
-main();
+if (typeof test === 'function') {
+  test('release manifest binds version, build, commit, artifact, digest and public URL', main);
+} else {
+  main();
+}
