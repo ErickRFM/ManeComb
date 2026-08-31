@@ -14,6 +14,11 @@ describe('presence SSOT', () => {
 
   it('mantiene offline explicito separado de desconocido', () => {
     expect(getPresenceStatus({ u1: 'offline' }, 'u1')).toBe('offline');
+    expect(getPresencePresentation('offline').label).toBe('Sin conexión');
     expect(getPresenceStatus({}, 'u1')).toBe('unknown');
+  });
+
+  it('presenta la presencia confirmada en español', () => {
+    expect(getPresencePresentation('online')).toEqual({ label: 'En línea', tone: 'positive' });
   });
 });

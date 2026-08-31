@@ -16,7 +16,14 @@ import {
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusPill } from '@/src/components/status-pill';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
-import { formatEta, formatFreshness, formatSpeed, routeLabel as formatRoute, stateLabel } from '@shared/operational-contract';
+import {
+  formatEta,
+  formatFreshness,
+  formatSpeed,
+  journeyStatusLabelForStatus,
+  routeLabel as formatRoute,
+  stateLabel,
+} from '@shared/operational-contract';
 import { useAppTheme } from '@/src/hooks/use-app-theme';
 import type { Incident, RouteSession, Vehicle } from '@/src/types/app';
 import type { LocationStatusSnapshot } from '../types';
@@ -45,21 +52,6 @@ const PANEL_DRAG_TRIGGER = 28;
 const PANEL_FLING_VELOCITY = 0.35;
 const NARROW_PANEL_BREAKPOINT = 390;
 const SECTION_REVEAL_MARGIN = 8;
-
-/** Etiquetas de estado de jornada. El estado operacional usa `stateLabel`. */
-const sessionStatusLabels: Record<string, string> = {
-  ASSIGNED: 'Asignada',
-  READY: 'Lista',
-  RUNNING: 'En jornada',
-  PAUSED: 'Pausada',
-  FINISHED: 'Finalizada',
-  CANCELLED: 'Cancelada',
-};
-
-function formatSessionStatus(status?: string | null) {
-  if (!status) return 'Sin estado';
-  return sessionStatusLabels[status] || status.replace(/[-_]/g, ' ');
-}
 
 function formatCompactUnitMeta(unit: OperationalUnitSnapshot | null, emptyMeta: string) {
   if (!unit) return emptyMeta;
@@ -649,7 +641,7 @@ export const BottomTrackingPanel = memo(function BottomTrackingPanelComponent({
                         <View style={styles.followIdentity}>
                           <Text style={[styles.detailValue, styles.historyItemTitle, { color: theme.colors.text }]}>{startedLabel}</Text>
                           <Text style={[styles.detailLabel, { color: theme.colors.muted }]}>
-                            {[durationLabel, formatSessionStatus(session.status)].filter(Boolean).join(' · ')}
+                            {[durationLabel, journeyStatusLabelForStatus(session.status)].filter(Boolean).join(' · ')}
                           </Text>
                         </View>
                         <Pressable

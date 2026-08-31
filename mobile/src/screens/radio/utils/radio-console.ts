@@ -206,7 +206,7 @@ export function deriveLiveConsole(input: LiveConsoleInput): RadioConsoleState {
       };
     case 'LISTENING':
       return {
-        label: 'En linea',
+        label: 'En línea',
         detail: selectedChannelTitle,
         icon: 'access-point-check',
         tone: 'positive',

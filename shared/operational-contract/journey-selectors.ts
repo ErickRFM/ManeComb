@@ -1,14 +1,23 @@
 import type { OperationalJourney, OperationalUnitSnapshot } from './types';
 
-const JOURNEY_STATUS_LABELS: Record<OperationalJourney['status'], string> = {
+export type JourneyLifecycleStatus = OperationalJourney['status'] | 'FINISHED' | 'CANCELLED';
+
+const JOURNEY_STATUS_LABELS: Record<JourneyLifecycleStatus, string> = {
   ASSIGNED: 'Asignada',
   READY: 'Lista para iniciar',
   RUNNING: 'En jornada',
   PAUSED: 'Pausada',
+  FINISHED: 'Finalizada',
+  CANCELLED: 'Cancelada',
 };
 
+export function journeyStatusLabelForStatus(status?: string | null): string {
+  if (!status) return 'Sin estado';
+  return JOURNEY_STATUS_LABELS[status as JourneyLifecycleStatus] || status.replace(/[-_]/g, ' ');
+}
+
 export function journeyStatusLabel(journey: OperationalJourney | null): string {
-  return journey ? JOURNEY_STATUS_LABELS[journey.status] : 'Sin jornada';
+  return journey ? journeyStatusLabelForStatus(journey.status) : 'Sin jornada';
 }
 
 export function journeyPrimaryAction(journey: OperationalJourney | null):

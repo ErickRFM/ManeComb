@@ -10,7 +10,10 @@ const baseLive = {
 
 describe('live radio console', () => {
   it('only enables the PTT when the runtime is listening on the selected channel', () => {
-    expect(deriveLiveConsole({ ...baseLive, phase: 'LISTENING' }).pttDisabled).toBe(false);
+    expect(deriveLiveConsole({ ...baseLive, phase: 'LISTENING' })).toMatchObject({
+      label: 'En línea',
+      pttDisabled: false,
+    });
 
     for (const phase of [
       'IDLE',
