@@ -262,6 +262,8 @@ siendo la autoridad compilada del binario.
 | Communication | `npm.cmd test` | PASS. |
 | System Audit | seis comandos exactos del job `cross-layer-contract` | PASS; physical policy 8/8; PR-only enforcement N/A sin PR. |
 | Dependency Audit | cuatro `npm audit --omit=dev --audit-level=high` + Mobile gate | PASS, 0 high/critical en los cinco productos. |
+| Android Release | `npm.cmd run android:release` desde worktree limpio | BLOCKED antes de Gradle: falta `google-services.json` y no existen las cuatro variables `MANECOMB_FIREBASE_*`. Keystore y credenciales locales sí existen; no se degradó a un build sin FCM. |
+| Android físico | `adb devices -l` | BLOCKED: daemon accesible, lista de dispositivos vacía. |
 
 ## Reconciliación y freeze
 
@@ -280,8 +282,9 @@ siendo la autoridad compilada del binario.
   `MANECOMB_GOOGLE_SERVICES_JSON_BASE64`. El workflow nuevo fallará cerrado.
 - `PUBLICATION_BLOCKED`: sin build firmado y secrets no se crea Release, URL ni
   patch de AppConfig. R2 también carece de bucket, dominio y credenciales.
-- `PHYSICAL_DEVICE_BLOCKED`: la matriz requiere el APK/digest final y hardware
-  autorizado; RTC además requiere dos Android reales. Se comprobará ADB en freeze.
+- `PHYSICAL_DEVICE_BLOCKED`: `adb devices -l` devolvió una lista vacía; la matriz
+  requiere el APK/digest final y hardware autorizado; RTC además requiere dos
+  Android reales.
 - #108, #89 y #29 permanecen abiertos; sólo podrán cerrarse con el mismo artifact
   final y digest en session endurance, RTC/TURN, FCM, Portal/Admin y Commercial.
 
