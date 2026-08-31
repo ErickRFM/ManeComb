@@ -294,6 +294,8 @@ export function SalesAuthScreen({ mode }: Props) {
                     value={registerName}
                     onChangeText={setRegisterName}
                     autoCapitalize="words"
+                    autoComplete="name"
+                    textContentType="name"
                   />
                   <AuthField
                     icon="office-building-outline"
@@ -302,6 +304,8 @@ export function SalesAuthScreen({ mode }: Props) {
                     value={registerCompany}
                     onChangeText={setRegisterCompany}
                     autoCapitalize="words"
+                    autoComplete="organization"
+                    textContentType="organizationName"
                   />
                 </>
               ) : null}
@@ -313,7 +317,9 @@ export function SalesAuthScreen({ mode }: Props) {
                 onChangeText={isRegister ? setRegisterIdentity : setLoginIdentity}
                 keyboardType="default"
                 autoCapitalize="none"
+                autoComplete="username"
                 autoCorrect={false}
+                textContentType="username"
               />
               <AuthField
                 icon="lock-outline"

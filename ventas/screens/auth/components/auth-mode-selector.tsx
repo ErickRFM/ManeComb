@@ -1,4 +1,4 @@
-import { Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, Text, View } from 'react-native';
 import type { AuthMode } from '../auth.types';
 import { authStyles as s } from '../auth.styles';
 
@@ -38,6 +38,7 @@ function SegmentButton({
       accessibilityRole="tab"
       accessibilityState={{ selected: active }}
       accessibilityLabel={label}
+      {...(Platform.OS === 'web' ? ({ 'aria-selected': active } as any) : {})}
       onPress={onPress}
       style={({ pressed }) => [
         s.segmentButton,

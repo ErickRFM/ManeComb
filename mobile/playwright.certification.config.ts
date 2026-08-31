@@ -5,7 +5,10 @@ const baseURL = configuredBaseUrl || 'http://127.0.0.1:8081';
 const runsAgainstLocalServer = !configuredBaseUrl;
 
 const viewports = [
+  { name: 'phone-320', width: 320, height: 720 },
   { name: 'phone-360', width: 360, height: 800 },
+  { name: 'phone-390', width: 390, height: 844 },
+  { name: 'phone-430', width: 430, height: 932 },
   { name: 'tablet-768', width: 768, height: 1024 },
   { name: 'desktop-1024', width: 1024, height: 768 },
   { name: 'desktop-1280', width: 1280, height: 800 },

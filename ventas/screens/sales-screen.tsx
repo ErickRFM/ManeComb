@@ -272,6 +272,7 @@ export function SalesScreen() {
 
       <SiteHeader
         compact={headerCompact}
+        showSecondaryAction={width >= 400}
         stacked={isPhone || isTablet}
         loginLabel={loginLabel}
         onBuy={() => scrollToSection('planes')}

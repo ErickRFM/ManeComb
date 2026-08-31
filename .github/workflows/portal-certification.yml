@@ -92,7 +92,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run five-viewport public and local authenticated certification
+      - name: Run responsive public and local authenticated certification
         run: >-
           npx playwright test
           --config playwright.certification.config.ts

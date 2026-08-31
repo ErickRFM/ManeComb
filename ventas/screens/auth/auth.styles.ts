@@ -129,7 +129,7 @@ export const authStyles = StyleSheet.create({
   },
   segmentButton: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 9,
@@ -195,7 +195,8 @@ export const authStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 46,
-    paddingHorizontal: 2,
+    minWidth: 36,
+    paddingHorizontal: 6,
     ...(Platform.OS === 'web' ? ({ cursor: 'pointer' } as any) : {}),
   },
   passwordRequirements: {
@@ -245,6 +246,8 @@ export const authStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    minHeight: 32,
+    paddingHorizontal: 4,
   },
   checkbox: {
     width: 16,
@@ -271,6 +274,11 @@ export const authStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     lineHeight: 17,
+  },
+  smallActionButton: {
+    justifyContent: 'center',
+    minHeight: 32,
+    paddingHorizontal: 4,
   },
   messageBox: {
     borderRadius: 12,

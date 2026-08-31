@@ -1,5 +1,5 @@
 import { Platform, Pressable, Text, TextInput, View } from 'react-native';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { authStyles as s } from '../auth.styles';
 
@@ -22,13 +22,18 @@ type Props = {
 export function AuthField({ autoCapitalize = 'sentences', autoComplete, autoCorrect = true, icon, keyboardType = 'default', label, onChangeText, onSubmitEditing, placeholder, returnKeyType, secureTextEntry = false, textContentType, value }: Props) {
   const [isFocused, setFocused] = useState(false);
   const [isPasswordVisible, setPasswordVisible] = useState(false);
+  const fieldId = `auth-field-${useId().replace(/:/g, '')}`;
+  const labelId = `${fieldId}-label`;
   const webInputStyle = Platform.OS === 'web' ? ({ outlineStyle: 'none', outlineWidth: 0, boxShadow: 'none' } as any) : null;
   return (
     <View style={s.field}>
-      <Text style={s.fieldLabel}>{label}</Text>
+      <Text nativeID={labelId} style={s.fieldLabel}>{label}</Text>
       <View style={[s.inputShell, isFocused ? s.inputShellFocused : undefined]}>
         <MaterialCommunityIcons name={icon} size={19} color={isFocused ? '#FF4D7D' : 'rgba(216, 226, 245, 0.62)'} />
         <TextInput
+          nativeID={fieldId}
+          accessibilityLabel={label}
+          accessibilityLabelledBy={labelId}
           value={value}
           onChangeText={onChangeText}
           keyboardType={keyboardType}

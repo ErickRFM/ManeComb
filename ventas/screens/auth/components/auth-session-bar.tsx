@@ -26,7 +26,8 @@ export function AuthSessionBar({ rememberSession, disabled, onToggleRemember, on
         accessibilityRole="link"
         accessibilityLabel="Recuperar acceso"
         disabled={disabled}
-        onPress={onForgotPassword}>
+        onPress={onForgotPassword}
+        style={s.smallActionButton}>
         <Text style={s.smallActionText}>Recuperar acceso</Text>
       </Pressable>
     </View>
