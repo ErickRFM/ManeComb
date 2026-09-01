@@ -7,18 +7,18 @@ const styles = fs.readFileSync(path.resolve(__dirname, '../screens/sales/styles.
 const card = fs.readFileSync(path.resolve(__dirname, '../screens/sales/components/plan-card.tsx'), 'utf8');
 
 // Mobile keeps one full-width card and preserves desktop-scale visual hierarchy
-// on standard 360 px phones. The card may also compact itself when its real
-// rendered width is narrow, which is needed by the desktop comparison.
+// through the 320 px certification floor. Narrow tablet/desktop columns opt into
+// the compact scale explicitly without taking horizontal space from phones.
 assert.match(screen, /const planCardGap = isPhone \? 12 : 18/);
 assert.match(screen, /Math\.max\(0, width - 32\)/);
-assert.match(screen, /const compactPlanCard = cardWidth < 288/);
+assert.match(screen, /const compactPlanCard = !isPhone && cardWidth < 312/);
 assert.match(screen, /compact=\{compactPlanCard\}/);
 assert.match(screen, /styles\.planCarouselViewportPhone/);
 assert.match(screen, /styles\.planCarouselPhone/);
 assert.match(styles, /planCarouselViewportPhone:/);
 assert.match(styles, /planCarouselPhone:/);
 assert.match(styles, /overflowX: 'hidden'/);
-assert.match(card, /const compactCard = compact \|\| width < 312;/);
+assert.match(card, /const compactCard = compact;/);
 assert.match(card, /const planListMinHeight = compactCard \? 96 : 106;/);
 assert.match(card, /const cardMinHeight = showTrialAction/);
 assert.match(card, /minHeight: cardMinHeight/);

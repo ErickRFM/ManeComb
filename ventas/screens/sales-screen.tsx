@@ -81,7 +81,7 @@ export function SalesScreen() {
         )
       : 306;
   const cardStep = cardWidth + planCardGap;
-  const compactPlanCard = cardWidth < 288;
+  const compactPlanCard = !isPhone && cardWidth < 312;
   const carouselRef = useRef<ScrollView>(null);
   const pageRef = useRef<ScrollView>(null);
   const nativeSectionOffsets = useRef<Record<string, number>>({});
@@ -272,7 +272,7 @@ export function SalesScreen() {
 
       <SiteHeader
         compact={headerCompact}
-        showSecondaryAction={width >= 400}
+        showSecondaryAction={width >= 430}
         stacked={isPhone || isTablet}
         loginLabel={loginLabel}
         onBuy={() => scrollToSection('planes')}

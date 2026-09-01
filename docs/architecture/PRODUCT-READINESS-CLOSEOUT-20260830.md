@@ -308,3 +308,22 @@ siendo la autoridad compilada del binario.
    activación/documentos/roles; Admin Access/JWT/MFA; journey comercial completo.
 8. Adjuntar SHA, digest, dispositivos, fecha y evidencia a cada issue. No cerrar
    ninguna fila por inspección de código.
+
+## Revisión independiente previa a integración — 2026-09-01
+
+- Se confirmó que la primera versión del workflow hacía público el Release antes
+  del re-hash remoto. La política final conserva el Draft privado hasta validar
+  assets, tamaño, SHA-256 y attestation del APK descargado por API autenticada.
+- La identidad tag/version/build se rechaza antes del build si ya existe un tag,
+  Release o Draft. Un rerun nunca sobrescribe la misma identidad.
+- La transición AppConfig usa compare-and-set sobre `sourceCommit` y `sha256`
+  previos; dos publicaciones distintas concurrentes no pueden perder historia
+  silenciosamente. Reintentar la misma publicación sigue siendo idempotente.
+- El contrato Actions usa los seis nombres documentados. `MANECOMB_FIREBASE_*`
+  queda identificado sólo como alternativa runtime local/histórica, no como un
+  segundo contrato de secretos del workflow.
+- La revisión también eliminó lógica muerta de contraseña en `PATCH /users/me`
+  y alineó exactamente el breakpoint del CTA secundario a 430 px. La matriz
+  física de viewport detectó además que el inset de glow compactaba la tarjeta
+  de plan a 264 px en un teléfono de 320 px; Mobile conserva ahora el ancho,
+  padding y escala completos desde el piso certificado de 320 px.

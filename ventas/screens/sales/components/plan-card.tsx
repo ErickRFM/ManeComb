@@ -43,10 +43,9 @@ export function PlanCard({
   const [entered, setEntered] = useState(Platform.OS !== 'web');
   const [entrySettled, setEntrySettled] = useState(Platform.OS !== 'web');
 
-  // En desktop de cuatro columnas las tarjetas rondan los 295 px. Ese ancho ya necesita
-  // la escala compacta aunque no sea un teléfono; en móvil de 360 px la tarjeta conserva
-  // la escala completa porque sigue teniendo ~328 px útiles.
-  const compactCard = compact || width < 312;
+  // La pantalla decide cuándo compactar: las columnas estrechas de tablet/desktop usan
+  // esta escala, mientras que el carrusel móvil conserva tipografía, padding y ancho útil.
+  const compactCard = compact;
   // El carrusel desktop recorta por diseño el contenido horizontal. Dejamos respiración
   // dentro del mismo footprint de la tarjeta para que hover, halo y glow no choquen con
   // los bordes laterales del viewport ni alteren snapToInterval.
