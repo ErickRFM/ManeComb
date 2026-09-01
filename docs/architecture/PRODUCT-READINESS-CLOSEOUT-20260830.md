@@ -72,7 +72,7 @@ Este documento es el único ledger de ejecución del cierre iniciado desde
 | Trade-offs | A/B ocultan drift; C conserva la intención del gate. |
 | Decisión | Opción C. |
 | Archivos | `docs/architecture/system-audit-gates.json`, `docs/architecture/system-authorities.json`. |
-| Tests | Los seis pasos locales exactos del workflow pasan; policy física 8/8. El paso `Enforce physical gate on Ready PRs` no aplica porque no existe PR. Falta confirmar el run remoto después del push. |
+| Tests | Los seis pasos locales exactos del workflow pasan; policy física 8/8. El paso `Enforce physical gate on Ready PRs` no aplica porque no existe PR. Los runs remotos de CI, System Audit y Dependency Audit sobre el candidato previo al ajuste exclusivo de Actions terminaron en PASS. |
 | Resultado | PASS |
 | Razón | Checkpoint reproducible `3786a744...` coincide con `origin/main`, drift 0/5 sin ampliar el límite; autoridades y nuevas rutas fuente están registradas. |
 
@@ -182,6 +182,7 @@ Este documento es el único ledger de ejecución del cierre iniciado desde
 | Distribución APK | GitHub Releases publica assets del repo público con URL directa, tags y digest; immutable releases/attestations refuerzan procedencia. | No exige credenciales de un segundo host y el workflow puede descargar el mismo asset publicado. | GitHub Releases inmediato, draft-first, attestation y verificación remota. |
 | R2 | Public buckets admiten custom domain y caché; R2 no cobra egress directo, pero `r2.dev` no es canal productivo y faltan recursos/secretos. | Aporta marca y control cuando ManeComb provisione bucket/dominio. | Conservar como espejo futuro, nunca como segunda autoridad de metadata. |
 | Pages | Cloudflare Pages limita cada asset a 25 MiB. | El APK real ronda 96 MB. | Descartado. |
+| Runtime de Actions | Las generaciones vigentes documentadas son `setup-java@v6` y `upload-artifact@v7`. | Los workflows usaban generaciones con runtime Node 20 deprecado; además el build aislaba `GRADLE_USER_HOME` fuera del caché de `setup-java`. | Actualizar majors y alinear el home de Gradle en CI/release sin cambiar el build local. |
 
 ## Matriz de distribución MC-02
 
@@ -264,6 +265,7 @@ siendo la autoridad compilada del binario.
 | Communication | `npm.cmd test` | PASS. |
 | System Audit | seis comandos exactos del job `cross-layer-contract` | PASS; physical policy 8/8; PR-only enforcement N/A sin PR. |
 | Dependency Audit | cuatro `npm audit --omit=dev --audit-level=high` + Mobile gate | PASS, 0 high/critical en los cinco productos. |
+| GitHub Actions | CI `33475538308`, System Audit `33475538329`, Dependency Audit `33475538376` | PASS sobre `4b0311b1`; CI completó sus ocho jobs y produjo el artefacto debug certificado. El SHA final sólo cambia workflows/ledger y se revalida después del push. |
 | Android Release | `npm.cmd run android:release` desde worktree limpio | BLOCKED antes de Gradle: falta `google-services.json` y no existen las cuatro variables `MANECOMB_FIREBASE_*`. Keystore y credenciales locales sí existen; no se degradó a un build sin FCM. |
 | Android físico | `adb devices -l` | BLOCKED: daemon accesible, lista de dispositivos vacía. |
 

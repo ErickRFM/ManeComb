@@ -58,11 +58,15 @@ jobs:
             ventas/package-lock.json
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
           cache: gradle
+
+      - name: Align Gradle cache home
+        shell: bash
+        run: echo "GRADLE_USER_HOME=$HOME/.gradle" >> "$GITHUB_ENV"
 
       - name: Require release secrets
         shell: bash
@@ -161,7 +165,7 @@ jobs:
           subject-path: mobile/dist/${{ steps.release.outputs.artifact }}
 
       - name: Upload certified candidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manecomb-${{ steps.release.outputs.version }}-build-${{ steps.release.outputs.build }}
           path: |

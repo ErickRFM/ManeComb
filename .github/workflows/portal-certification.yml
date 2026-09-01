@@ -103,7 +103,7 @@ jobs:
 
       - name: Upload public and local contract evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portal-public-certification-${{ github.run_id }}
           path: |
@@ -199,7 +199,7 @@ jobs:
 
       - name: Upload authenticated evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: portal-authenticated-certification-${{ github.run_id }}
           path: |
