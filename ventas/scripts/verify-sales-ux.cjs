@@ -68,7 +68,7 @@ assert.match(salesScreen, /plans\.findIndex\(\(plan\) => isPublicDemoPlan\(plan\
 // UX-04: la cabecera móvil conserva sesión sin segunda fila redundante; las secciones siguen funcionando en native.
 assert.match(siteHeader, /<ActionButton label=\{loginLabel\} icon="login" variant="ghost" compact onPress=\{onLogin\} \/>/);
 assert.match(siteHeader, /stacked \? \{ minHeight: 68, paddingVertical: 9 \} : undefined/);
-assert.match(salesStyles, /actionButtonCompact:[\s\S]*paddingHorizontal: 12/);
+assert.match(salesStyles, /actionButtonCompact:[\s\S]*paddingHorizontal: 10/);
 assert.match(siteHeader, /\{!stacked \? <View style=\{styles\.headerNav\}>\{navButtons\}<\/View> : null\}/);
 assert.doesNotMatch(siteHeader, /stacked \? \(\s*<View style=\{\[styles\.headerNav/);
 assert.match(salesScreen, /nativeSectionOffsets/);
