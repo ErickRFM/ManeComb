@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "5cd577def008516b58d9a1362d4f6eaf163a5df5",
-    "capturedAt": "2026-08-29",
-    "phase": "post-chat-text-replay-closeout"
+    "commit": "3786a7440f4804c665ab3ca6ea82008ce6f1fe96",
+    "capturedAt": "2026-08-30",
+    "phase": "post-communication-durability-main-review"
   },
   "products": [
     {
@@ -254,7 +254,10 @@
       "status": "canonical",
       "sourcePaths": [
         "backend/src/services/profile-authority.js",
-        "backend/src/modules/users/routes.js"
+        "backend/src/modules/users/routes.js",
+        "mobile/src/api/self-profile-authority.ts",
+        "mobile/src/api/offline-cache.ts",
+        "ventas/src/types/app.ts"
       ],
       "consumers": [
         "mobile",
@@ -271,7 +274,9 @@
         "backend/src/modules/account-security/routes.js",
         "backend/src/services/profile-authority.js",
         "mobile/src/api/account-security.ts",
-        "mobile/src/screens/driver-profile-edit-screen.tsx"
+        "mobile/src/api/account-security-validation.ts",
+        "mobile/src/screens/profile-edit/components/password-change-section.tsx",
+        "ventas/features/portal/profile/components/portal-profile-password-section.tsx"
       ],
       "consumers": [
         "mobile",
@@ -468,7 +473,10 @@
         "backend/src/sockets",
         "shared/communication",
         "ventas/features/portal/communication",
+        "backend/src/modules/chat",
+        "backend/src/data/repositories/chat-write-transaction.js",
         "backend/src/services/chat-media.js",
+        "mobile/src/api/chat-media-attempt.ts",
         "ventas/features/portal/communication/authenticated-media.tsx"
       ],
       "consumers": [
@@ -562,7 +570,10 @@
       "owner": "mobile",
       "status": "canonical",
       "sourcePaths": [
-        "mobile/app.json"
+        "mobile/app.json",
+        "mobile/scripts/app-version.js",
+        "mobile/scripts/build-android-apk.js",
+        "mobile/scripts/release-manifest.js"
       ],
       "consumers": [
         "mobile",
@@ -579,7 +590,11 @@
         "backend/src/data/repositories/app-release-repository.js",
         "backend/src/data/app-release-models.js",
         "backend/src/modules/app",
-        "backend/src/modules/platform/system-authority-routes.js"
+        "backend/src/modules/platform/system-authority-routes.js",
+        "backend/src/services/app-release-certification.js",
+        "mobile/scripts/release-manifest.js",
+        "mobile/scripts/release-draft-verification.js",
+        ".github/workflows/android-release-candidate.yml"
       ],
       "consumers": [
         "mobile",

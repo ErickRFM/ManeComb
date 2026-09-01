@@ -4,6 +4,14 @@ const { platformAuth } = require("../../middlewares/platform-auth");
 const { requirePlatformPermission } = require("../../middlewares/platform-access");
 const { recordPlatformAction } = require("../../services/platform-audit");
 const { sanitizeText } = require("../../utils/platform-filters");
+const {
+  RELEASE_PUBLICATION_FIELDS,
+  SEMVER_PATTERN,
+  SOURCE_COMMIT_PATTERN,
+  SHA256_PATTERN,
+  isHttpUrl,
+  isReleaseDate
+} = require("../../services/app-release-certification");
 
 const router = Router();
 const readLimiter = rateLimit({
@@ -24,6 +32,8 @@ const writeLimiter = rateLimit({
 const APP_CONFIG_STRING_FIELDS = {
   name: 80,
   version: 40,
+  sourceCommit: 40,
+  sha256: 64,
   status: 40,
   apkUrl: 2048,
   androidMin: 40,
@@ -32,6 +42,8 @@ const APP_CONFIG_STRING_FIELDS = {
 };
 const APP_CONFIG_FIELDS = new Set([
   ...Object.keys(APP_CONFIG_STRING_FIELDS),
+  "buildNumber",
+  "mandatory",
   "releaseNotes",
   "versionHistory"
 ]);
@@ -101,9 +113,10 @@ function serializeDeviceVersionStats(stats = {}) {
 }
 
 function sanitizeNotes(value) {
-  if (!Array.isArray(value)) return null;
+  if (!Array.isArray(value) || value.length > 20 || value.some((entry) => typeof entry !== "string")) {
+    return null;
+  }
   return value
-    .slice(0, 20)
     .map((entry) => sanitizeText(entry, 240))
     .filter(Boolean);
 }
@@ -125,6 +138,28 @@ function sanitizeVersionHistory(value) {
   });
 }
 
+function buildPublishedVersionHistory(currentConfig = {}, patch = {}) {
+  const sanitizedHistory = sanitizeVersionHistory(currentConfig.versionHistory) || [];
+  const previousEntries = sanitizedHistory.length
+    ? sanitizedHistory
+        .filter((entry) => String(entry?.version || "") !== patch.version)
+        .map((entry) => ({ ...entry, current: false }))
+    : [];
+  return [
+    {
+      version: patch.version,
+      date: patch.releaseDate,
+      current: true,
+      size: patch.size || "",
+      androidMin: patch.androidMin || "",
+      notes: patch.releaseNotes || [],
+      archived: false,
+      mandatory: patch.mandatory
+    },
+    ...previousEntries
+  ].slice(0, 50);
+}
+
 function buildAppConfigPatch(body = {}) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { error: "El cuerpo debe ser un objeto JSON" };
@@ -144,16 +179,38 @@ function buildAppConfigPatch(body = {}) {
     patch[field] = sanitizeText(body[field], maxLength);
   }
 
-  if (patch.apkUrl) {
-    try {
-      const parsed = new URL(patch.apkUrl);
-      if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
-        return { error: "apkUrl debe ser una URL http/https sin credenciales" };
-      }
-      patch.apkUrl = parsed.toString();
-    } catch {
-      return { error: "apkUrl debe ser una URL válida" };
+  if (body.buildNumber !== undefined) {
+    if (!Number.isInteger(body.buildNumber) || body.buildNumber < 1) {
+      return { error: "buildNumber debe ser un entero positivo" };
     }
+    patch.buildNumber = body.buildNumber;
+  }
+  if (body.mandatory !== undefined) {
+    if (typeof body.mandatory !== "boolean") {
+      return { error: "mandatory debe ser booleano" };
+    }
+    patch.mandatory = body.mandatory;
+  }
+
+  if (body.version !== undefined && !SEMVER_PATTERN.test(patch.version)) {
+    return { error: "version debe usar SemVer MAYOR.MENOR.PARCHE" };
+  }
+  if (body.sourceCommit !== undefined && !SOURCE_COMMIT_PATTERN.test(patch.sourceCommit)) {
+    return { error: "sourceCommit debe ser un SHA Git completo de 40 caracteres" };
+  }
+  if (patch.sourceCommit) patch.sourceCommit = patch.sourceCommit.toLowerCase();
+  if (body.sha256 !== undefined && !SHA256_PATTERN.test(patch.sha256)) {
+    return { error: "sha256 debe ser un digest hexadecimal de 64 caracteres" };
+  }
+  if (patch.sha256) patch.sha256 = patch.sha256.toLowerCase();
+  if (body.apkUrl !== undefined && !isHttpUrl(patch.apkUrl)) {
+    return { error: "apkUrl debe ser una URL http/https sin credenciales" };
+  }
+  if (patch.apkUrl) {
+    patch.apkUrl = new URL(patch.apkUrl).toString();
+  }
+  if (body.releaseDate !== undefined && !isReleaseDate(patch.releaseDate)) {
+    return { error: "releaseDate debe usar YYYY-MM-DD" };
   }
 
   if (body.releaseNotes !== undefined) {
@@ -170,6 +227,16 @@ function buildAppConfigPatch(body = {}) {
 
   if (!Object.keys(patch).length) {
     return { error: "No hay campos de configuración para actualizar" };
+  }
+
+  const touchesPublication = RELEASE_PUBLICATION_FIELDS.some((field) => body[field] !== undefined);
+  if (touchesPublication) {
+    const missing = RELEASE_PUBLICATION_FIELDS.filter((field) => body[field] === undefined);
+    if (missing.length) {
+      return {
+        error: `La publicacion es atomica; faltan campos de procedencia: ${missing.join(", ")}`
+      };
+    }
   }
 
   return { patch };
@@ -242,7 +309,20 @@ router.patch(
         return res.status(400).json({ ok: false, code: "invalid_app_config", message: error });
       }
 
-      const updated = await Promise.resolve(store.updateAppConfig(patch));
+      const isPublication = RELEASE_PUBLICATION_FIELDS.every((field) => patch[field] !== undefined);
+      let releasePrecondition;
+      if (isPublication) {
+        const currentConfig = store.getAppConfig
+          ? await Promise.resolve(store.getAppConfig())
+          : null;
+        patch.versionHistory = buildPublishedVersionHistory(currentConfig, patch);
+        releasePrecondition = {
+          expectedSourceCommit: String(currentConfig?.sourceCommit || ""),
+          expectedSha256: String(currentConfig?.sha256 || "")
+        };
+      }
+
+      const updated = await Promise.resolve(store.updateAppConfig(patch, releasePrecondition));
       await recordPlatformAction(req, {
         action: "platform.system.app.info.update",
         targetType: "app",
@@ -255,6 +335,13 @@ router.patch(
       });
       return res.json({ ok: true, data: updated });
     } catch (error) {
+      if (error?.code === "APP_CONFIG_CONFLICT") {
+        return res.status(409).json({
+          ok: false,
+          code: "app_config_conflict",
+          message: "La autoridad de release cambió durante la publicación; vuelve a leerla y reintenta"
+        });
+      }
       return next(error);
     }
   }
@@ -265,5 +352,6 @@ module.exports = {
   serializeOperationalEvent,
   serializeOperationalInsights,
   serializeDeviceVersionStats,
-  buildAppConfigPatch
+  buildAppConfigPatch,
+  buildPublishedVersionHistory
 };

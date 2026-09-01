@@ -20,15 +20,20 @@ async function main() {
   store.getAppConfig = async () => ({
     name: 'ManeComb',
     version: '9.9.9',
+    buildNumber: 999,
+    sourceCommit: 'a'.repeat(40),
+    sha256: 'b'.repeat(64),
     status: 'disponible',
     apkUrl: 'https://example.test/manecomb-9.9.9.apk',
+    releaseDate: '2026-08-10',
     releaseNotes: ['Session update regression'],
+    mandatory: true,
     versionHistory: [
       {
         version: '9.9.9',
         date: '2026-08-10',
         current: true,
-        mandatory: true,
+        mandatory: false,
       },
     ],
   });

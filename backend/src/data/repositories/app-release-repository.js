@@ -11,12 +11,16 @@ const APP_CONFIG_ID = "app-config";
 const APP_CONFIG_FIELDS = [
   "name",
   "version",
+  "buildNumber",
+  "sourceCommit",
+  "sha256",
   "status",
   "apkUrl",
   "androidMin",
   "size",
   "releaseDate",
   "releaseNotes",
+  "mandatory",
   "versionHistory"
 ];
 
@@ -39,6 +43,13 @@ function serializeAppConfig(doc) {
   if (!doc) return null;
   const source = typeof doc.toObject === "function" ? doc.toObject() : doc;
   return pickAppConfig(source);
+}
+
+function appConfigConflict() {
+  const error = new Error("La autoridad de release cambió durante la publicación; vuelve a leer AppConfig y reintenta.");
+  error.code = "APP_CONFIG_CONFLICT";
+  error.statusCode = 409;
+  return error;
 }
 
 class AppReleaseRepository extends StoreDomainRepository {
@@ -97,10 +108,10 @@ class AppReleaseRepository extends StoreDomainRepository {
     return this.ensureAppConfig();
   }
 
-  async updateAppConfig(data = {}) {
+  async updateAppConfig(data = {}, options = {}) {
     if (!this.AppConfigModel) {
       return typeof this.store.updateAppConfig === "function"
-        ? Promise.resolve(this.store.updateAppConfig(data))
+        ? Promise.resolve(this.store.updateAppConfig(data, options))
         : null;
     }
 
@@ -108,10 +119,17 @@ class AppReleaseRepository extends StoreDomainRepository {
     if (!Object.keys(patch).length) return this.getAppConfig();
 
     const now = new Date();
+    const hasReleasePrecondition =
+      options.expectedSourceCommit !== undefined || options.expectedSha256 !== undefined;
+    const filter = { _id: APP_CONFIG_ID };
+    if (hasReleasePrecondition) {
+      filter.sourceCommit = safeText(options.expectedSourceCommit, 40);
+      filter.sha256 = safeText(options.expectedSha256, 64);
+    }
 
     try {
       const doc = await this.AppConfigModel.findOneAndUpdate(
-        { _id: APP_CONFIG_ID },
+        filter,
         {
           $set: {
             ...patch,
@@ -122,13 +140,15 @@ class AppReleaseRepository extends StoreDomainRepository {
           }
         },
         {
-          upsert: true,
+          upsert: !hasReleasePrecondition,
           returnDocument: "after",
           setDefaultsOnInsert: true
         }
       ).lean();
+      if (!doc && hasReleasePrecondition) throw appConfigConflict();
       return serializeAppConfig(doc);
     } catch (error) {
+      if (error?.code === "APP_CONFIG_CONFLICT") throw error;
       if (error?.code !== 11000) throw error;
       const doc = await this.AppConfigModel.findOneAndUpdate(
         { _id: APP_CONFIG_ID },
@@ -226,6 +246,7 @@ module.exports = {
   APP_CONFIG_ID,
   APP_CONFIG_FIELDS,
   AppReleaseRepository,
+  appConfigConflict,
   pickAppConfig,
   serializeAppConfig
 };

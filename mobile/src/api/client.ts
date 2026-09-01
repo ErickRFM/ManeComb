@@ -36,7 +36,7 @@ import type {
   NavigationStop,
   VehicleTripRecord,
   NotificationItem,
-  ProfileMutationPayload,
+  SelfProfileMutationPayload,
   RegisterPayload,
   RtcIceConfig,
   RouteShape,
@@ -47,6 +47,7 @@ import type {
   User,
   Vehicle,
 } from '@/src/types/app';
+import { sanitizeSelfProfilePayload } from '@/src/api/self-profile-authority';
 
 const REQUEST_TIMEOUT_MS = RESOLVED_API_TIMEOUT_MS;
 const PASSWORD_RECOVERY_TIMEOUT_MS = 80000;
@@ -1079,8 +1080,11 @@ export async function registerDriverActivationRequest(payload: DriverActivationR
   return response.data;
 }
 
-export async function updateProfileRequest(payload: ProfileMutationPayload) {
-  const response = await apiClient.patch<{ ok: boolean; data: User }>('/users/me', payload);
+export async function updateProfileRequest(payload: SelfProfileMutationPayload) {
+  const response = await apiClient.patch<{ ok: boolean; data: User }>(
+    '/users/me',
+    sanitizeSelfProfilePayload(payload)
+  );
   return response.data.data;
 }
 

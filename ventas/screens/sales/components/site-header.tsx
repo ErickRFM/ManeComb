@@ -13,6 +13,7 @@ const navItems = [
 
 export function SiteHeader({
   compact,
+  showSecondaryAction,
   stacked,
   loginLabel,
   onBuy,
@@ -20,6 +21,7 @@ export function SiteHeader({
   onNavigate,
 }: {
   compact: boolean;
+  showSecondaryAction: boolean;
   stacked: boolean;
   loginLabel: string;
   onBuy: () => void;
@@ -50,6 +52,7 @@ export function SiteHeader({
 
   return (
     <View
+      testID="sales-site-header"
       style={[
         styles.headerShell,
         compact ? styles.headerShellCompact : undefined,
@@ -69,7 +72,9 @@ export function SiteHeader({
           {stacked ? (
             <View style={[styles.headerActions, { gap: 6 }]}>
               <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
-              <ActionButton label="Ver planes" icon="arrow-down" compact onPress={onBuy} />
+              {showSecondaryAction ? (
+                <ActionButton label="Ver planes" icon="arrow-down" compact onPress={onBuy} />
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -79,7 +84,9 @@ export function SiteHeader({
         {!stacked ? (
           <View style={styles.headerActions}>
             <ActionButton label={loginLabel} icon="login" variant="ghost" compact onPress={onLogin} />
-            <ActionButton label="Ver planes" icon="arrow-down" compact onPress={onBuy} />
+            {showSecondaryAction ? (
+              <ActionButton label="Ver planes" icon="arrow-down" compact onPress={onBuy} />
+            ) : null}
           </View>
         ) : null}
       </View>

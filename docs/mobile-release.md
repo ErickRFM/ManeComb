@@ -96,6 +96,25 @@ MANECOMB_UPLOAD_STORE_PASSWORD=<local>
 MANECOMB_UPLOAD_KEY_PASSWORD=<local>
 ```
 
+GitHub Actions usa los mismos valores mediante secretos, además de los dos
+archivos codificados en Base64:
+
+- `MANECOMB_ANDROID_KEYSTORE_BASE64`
+- `MANECOMB_UPLOAD_STORE_PASSWORD`
+- `MANECOMB_UPLOAD_KEY_ALIAS`
+- `MANECOMB_UPLOAD_KEY_PASSWORD`
+- `MANECOMB_GOOGLE_SERVICES_JSON_BASE64`
+- `MAPBOX_ACCESS_TOKEN`
+
+El workflow manual `.github/workflows/android-release-candidate.yml` falla antes
+del build si falta cualquiera. Ningún valor o archivo materializado se conserva
+como artefacto.
+
+`MANECOMB_FIREBASE_*` no forma parte del contrato de secretos de Actions. Es
+únicamente una alternativa de configuración runtime para builds locales
+históricos sin `google-services.json`; el workflow certificable exige y
+materializa exclusivamente `MANECOMB_GOOGLE_SERVICES_JSON_BASE64`.
+
 ## Build
 
 Desde `mobile/`:
@@ -119,9 +138,64 @@ El script usa una unidad temporal corta si detecta rutas largas de OneDrive.
 ```text
 mobile/dist/app-release.apk
 mobile/dist/app-release.aab
+mobile/dist/manecomb-<version>-build.<buildNumber>.apk
+mobile/dist/manecomb-<version>-build.<buildNumber>.aab
 ```
 
-Resultado validado el 2026-06-11:
+Los nombres genéricos preservan compatibilidad local. Sólo el nombre versionado
+se publica. Después del build se crea la evidencia reproducible:
+
+```powershell
+npm run release:manifest -- --artifact dist/manecomb-1.3.0-build.22.apk `
+  --public-url https://github.com/ErickRFM/ManeComb/releases/download/v1.3.0-build.22/manecomb-1.3.0-build.22.apk `
+  --release-date 2026-08-30 `
+  --release-notes-file dist/release-notes.json `
+  --mandatory false
+npm run release:verify -- --artifact dist/manecomb-1.3.0-build.22.apk
+```
+
+Esto genera `release-manifest.json` y `app-release.sha256`. El manifiesto liga
+versión, build, commit Git completo, nombre, bytes, SHA-256, URL pública y el
+patch exacto de la autoridad Platform. El comando rechaza un árbol rastreado
+sucio para impedir atribuir un binario a un commit distinto.
+
+## Publicación y autoridad
+
+El canal actual es GitHub Releases porque el repositorio es público y el APK
+supera el límite por archivo de Cloudflare Pages. El workflow crea un Draft
+privado, valida que estén los cuatro assets completos, descarga el APK mediante
+la API autenticada, compara tamaño y digest, y verifica su attestation. Sólo
+entonces hace público el Release. R2 con dominio propio puede añadirse como
+espejo posterior; no sustituye la autoridad ni se habilita sin
+bucket/dominio/secretos.
+
+Sólo después de verificar la descarga se aplica `backendPatch` del manifiesto a
+`PATCH /api/platform/system/app/info` con una sesión `platform_owner`. El
+backend exige atómicamente `version`, `buildNumber`, `sourceCommit`, `sha256`,
+`apkUrl`, `releaseDate`, `releaseNotes` y `mandatory`; la misma operación deriva
+la entrada actual de `versionHistory` y marca la previa como no actual.
+`/api/app/info` responde 503 si falta cualquiera. Para
+rollback se vuelve a publicar de forma atómica el manifiesto de un release
+anterior cuyo digest ya fue verificado.
+
+### Fallos y rollback
+
+- Un tag o Release existente aborta antes del build y nunca se sobrescribe.
+- Un upload parcial, digest distinto, red agotada o attestation inválida deja el
+  Release como Draft y bloquea la publicación.
+- Un rerun no reutiliza el Draft: el operador debe inspeccionarlo y eliminarlo o
+  incrementar `buildNumber`; no se crean dos autoridades con la misma identidad.
+- Si el último cambio a público devuelve un resultado ambiguo, el workflow
+  intenta regresarlo a Draft antes de fallar. Se confirma con
+  `gh release view <tag> --json isDraft`.
+- Si AppConfig falla después de publicar, el asset puede permanecer disponible,
+  pero `/api/app/info` conserva la versión anterior. Se reintenta únicamente el
+  `backendPatch` verificado; nunca se anticipa AppConfig.
+- El rollback productivo consiste en volver a aplicar atómicamente el manifiesto
+  verificado de un Release anterior. `mandatory` permanece `false` por defecto y
+  sólo cambia mediante input explícito.
+
+Registro histórico del 2026-06-11 (no es autoridad del candidato actual):
 
 - APK: `mobile/dist/app-release.apk`, 76009324 bytes.
 - AAB: `mobile/dist/app-release.aab`, 53030573 bytes.

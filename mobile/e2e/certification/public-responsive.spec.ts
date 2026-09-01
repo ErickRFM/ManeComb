@@ -131,6 +131,102 @@ test.describe('CERT-PROD-01 — responsive público', () => {
     await attachFullPageScreenshot(page, testInfo, 'landing-planes');
   });
 
+  test('header conserva acciones completas dentro de cada viewport', async ({ page }) => {
+    await page.goto('/ventas', { waitUntil: 'domcontentloaded' });
+    const viewport = page.viewportSize();
+    expect(viewport, 'El proyecto debe declarar viewport').not.toBeNull();
+
+    const header = page.getByTestId('sales-site-header');
+    await expect(header).toBeVisible();
+    const headerBox = await header.boundingBox();
+    expect(headerBox, 'La cabecera debe tener geometría medible').not.toBeNull();
+
+    if (viewport && headerBox) {
+      expect(headerBox.x).toBeGreaterThanOrEqual(-1);
+      expect(headerBox.x + headerBox.width).toBeLessThanOrEqual(viewport.width + 1);
+    }
+
+    const headerButtons = header.getByRole('button');
+    const buttonCount = await headerButtons.count();
+    const rightSafetyInset = viewport && viewport.width <= 640 ? 8 : 0;
+    for (let index = 0; index < buttonCount; index += 1) {
+      const box = await headerButtons.nth(index).boundingBox();
+      expect(box, `La acción ${index + 1} debe tener geometría medible`).not.toBeNull();
+      if (viewport && box) {
+        expect(box.x, `La acción ${index + 1} no debe recortarse a la izquierda`).toBeGreaterThanOrEqual(0);
+        expect(
+          box.x + box.width,
+          `La acción ${index + 1} debe conservar margen derecho en ${viewport.width}px`
+        ).toBeLessThanOrEqual(viewport.width - rightSafetyInset);
+      }
+    }
+
+    const secondaryAction = header.getByRole('button', { name: /^Ver planes\b/i });
+    if (viewport && viewport.width < 430) {
+      await expect(secondaryAction).toHaveCount(0);
+      await expect(header.getByRole('button', { name: /Iniciar sesión|Abrir portal/i })).toBeVisible();
+    } else {
+      await expect(secondaryAction).toBeVisible();
+    }
+
+    await assertNoDocumentOverflow(page);
+  });
+
+  test('auth expone labels, autocomplete, foco y targets medibles', async ({ page }) => {
+    await page.goto('/ventas/login', { waitUntil: 'domcontentloaded' });
+
+    const loginTab = page.getByRole('tab', { name: 'Iniciar sesión' });
+    const registerTab = page.getByRole('tab', { name: 'Registrarse' });
+    await expect(loginTab).toHaveAttribute('aria-selected', 'true');
+
+    for (const tab of [loginTab, registerTab]) {
+      const box = await tab.boundingBox();
+      expect(box, 'Cada pestaña debe tener geometría medible').not.toBeNull();
+      expect(box?.height ?? 0, 'Cada pestaña debe ofrecer un target de al menos 44px').toBeGreaterThanOrEqual(44);
+    }
+
+    const identity = page.getByLabel('Correo o teléfono', { exact: true });
+    const password = page.getByLabel('Contraseña', { exact: true });
+    const passwordToggle = page.getByRole('button', { name: 'Mostrar contraseña' });
+    await expect(identity).toHaveAttribute('autocomplete', 'username');
+    await expect(password).toHaveAttribute('autocomplete', 'current-password');
+
+    await identity.focus();
+    await expect(identity).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(password).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(passwordToggle).toBeFocused();
+
+    const toggleBox = await passwordToggle.boundingBox();
+    expect(toggleBox, 'El toggle de contraseña debe tener geometría medible').not.toBeNull();
+    expect(toggleBox?.width ?? 0).toBeGreaterThanOrEqual(36);
+    expect(toggleBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+
+    for (const target of [
+      page.getByRole('checkbox', { name: 'Recordarme' }),
+      page.getByRole('link', { name: 'Recuperar acceso' }),
+    ]) {
+      const box = await target.boundingBox();
+      expect(box, 'Las acciones auxiliares deben tener geometría medible').not.toBeNull();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(32);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(24);
+    }
+
+    await registerTab.click();
+    await expect(page.getByLabel('Nombre (opcional)', { exact: true })).toHaveAttribute('autocomplete', 'name');
+    await expect(page.getByLabel('Empresa o flotilla (opcional)', { exact: true })).toHaveAttribute(
+      'autocomplete',
+      'organization'
+    );
+    await expect(page.getByLabel('Contraseña', { exact: true })).toHaveAttribute('autocomplete', 'new-password');
+    await expect(page.getByLabel('Confirmar contraseña', { exact: true })).toHaveAttribute(
+      'autocomplete',
+      'new-password'
+    );
+    await assertNoDocumentOverflow(page);
+  });
+
   test('landing ejecuta movimiento público visible cuando el sistema permite animaciones', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'no-preference' });
     await page.goto('/ventas', { waitUntil: 'domcontentloaded' });

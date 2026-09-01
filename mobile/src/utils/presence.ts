@@ -24,7 +24,7 @@ export function markAllPresenceUnknown(): PresenceMap {
 }
 
 export function getPresencePresentation(status: PresenceStatus) {
-  if (status === 'online') return { label: 'En linea', tone: 'positive' as const };
-  if (status === 'offline') return { label: 'Offline', tone: 'neutral' as const };
+  if (status === 'online') return { label: 'En línea', tone: 'positive' as const };
+  if (status === 'offline') return { label: 'Sin conexión', tone: 'neutral' as const };
   return { label: 'Sin confirmar', tone: 'neutral' as const };
 }

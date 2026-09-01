@@ -1785,17 +1785,35 @@ function createEmbeddedStore() {
     return state.appConfig ? clone(state.appConfig) : null;
   }
 
-  function updateAppConfig(data) {
+  function updateAppConfig(data, options = {}) {
     const appConfig = state.appConfig || {};
+    const hasReleasePrecondition =
+      options.expectedSourceCommit !== undefined || options.expectedSha256 !== undefined;
+    if (
+      hasReleasePrecondition
+      && (
+        String(appConfig.sourceCommit || "") !== String(options.expectedSourceCommit || "")
+        || String(appConfig.sha256 || "") !== String(options.expectedSha256 || "")
+      )
+    ) {
+      const error = new Error("La autoridad de release cambió durante la publicación");
+      error.code = "APP_CONFIG_CONFLICT";
+      error.statusCode = 409;
+      throw error;
+    }
 
     if (data.name !== undefined) appConfig.name = data.name;
     if (data.version !== undefined) appConfig.version = data.version;
+    if (data.buildNumber !== undefined) appConfig.buildNumber = data.buildNumber;
+    if (data.sourceCommit !== undefined) appConfig.sourceCommit = data.sourceCommit;
+    if (data.sha256 !== undefined) appConfig.sha256 = data.sha256;
     if (data.status !== undefined) appConfig.status = data.status;
     if (data.apkUrl !== undefined) appConfig.apkUrl = data.apkUrl;
     if (data.androidMin !== undefined) appConfig.androidMin = data.androidMin;
     if (data.size !== undefined) appConfig.size = data.size;
     if (data.releaseDate !== undefined) appConfig.releaseDate = data.releaseDate;
     if (data.releaseNotes !== undefined) appConfig.releaseNotes = Array.isArray(data.releaseNotes) ? data.releaseNotes : [];
+    if (data.mandatory !== undefined) appConfig.mandatory = Boolean(data.mandatory);
     if (data.versionHistory !== undefined) appConfig.versionHistory = Array.isArray(data.versionHistory) ? data.versionHistory : [];
 
     state.appConfig = appConfig;

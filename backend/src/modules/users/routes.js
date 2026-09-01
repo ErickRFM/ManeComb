@@ -124,11 +124,6 @@ router.patch("/me", authenticate, async (req, res, next) => {
     const payload = pickSelfProfileFields(req.user, req.body);
     const user = await req.app.locals.store.updateUser(req.user.id, payload);
     const emailChanged = Boolean(payload.email && String(previousUser?.email || "").trim().toLowerCase() !== String(user?.email || "").trim().toLowerCase());
-    const passwordChanged = Boolean(payload.password && String(payload.password).trim());
-    if (passwordChanged) {
-      await revokeAllSessions(user.id, null, "password_changed");
-      await sendSecurityChangeEmail(user, "PASSWORD_CHANGED");
-    }
     if (emailChanged) await sendSecurityChangeEmail(user, "EMAIL_CHANGED");
     await recordAudit(req, {
       type: "profile_updated", entityId: user.id, message: `Perfil ${user.email} actualizado`,

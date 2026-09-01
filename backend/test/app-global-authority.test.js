@@ -33,6 +33,25 @@ async function createPlatformToken(store, role, suffix) {
 
 async function createContext() {
   const store = createEmbeddedStore();
+  store.updateAppConfig({
+    name: "ManeComb",
+    version: "1.0.2",
+    buildNumber: 21,
+    sourceCommit: "a".repeat(40),
+    sha256: "b".repeat(64),
+    apkUrl: "https://github.com/ErickRFM/ManeComb/releases/download/v1.0.2/app-release.apk",
+    releaseDate: "2026-08-08",
+    releaseNotes: ["Version anterior"],
+    mandatory: false,
+    versionHistory: [{
+      version: "1.0.2",
+      date: "2026-08-08",
+      current: true,
+      notes: ["Version anterior"],
+      mandatory: false,
+      internalSecret: "must-not-persist"
+    }]
+  });
   const operationalAdmin = await store.createUser({
     name: "Legacy Operational Admin",
     email: `legacy-app-global-${Date.now()}@manecomb.test`,
@@ -230,34 +249,66 @@ async function main() {
     assert.equal(invalidOwnerPatch.response.status, 400);
     assert.equal(invalidOwnerPatch.payload.code, "invalid_app_config");
 
+    const incompletePublication = await requestJson(context.baseUrl, "/platform/system/app/info", {
+      token: context.platformOwnerToken,
+      method: "PATCH",
+      body: { version: "1.0.3" }
+    });
+    assert.equal(incompletePublication.response.status, 400);
+    assert.match(incompletePublication.payload.message, /publicacion es atomica/i);
+
+    const invalidDigest = await requestJson(context.baseUrl, "/platform/system/app/info", {
+      token: context.platformOwnerToken,
+      method: "PATCH",
+      body: {
+        version: "1.0.3",
+        buildNumber: 22,
+        sourceCommit: "c".repeat(40),
+        sha256: "not-a-digest",
+        apkUrl: "https://example.test/app-release.apk",
+        releaseDate: "2026-08-09"
+      }
+    });
+    assert.equal(invalidDigest.response.status, 400);
+    assert.match(invalidDigest.payload.message, /sha256/i);
+
     const ownerUpdate = await requestJson(context.baseUrl, "/platform/system/app/info", {
       token: context.platformOwnerToken,
       method: "PATCH",
       body: {
         version: "1.0.3",
+        buildNumber: 22,
+        sourceCommit: "c".repeat(40),
+        sha256: "d".repeat(64),
+        apkUrl: "https://github.com/ErickRFM/ManeComb/releases/download/v1.0.3/app-release.apk",
+        releaseDate: "2026-08-09",
         status: "disponible",
+        size: "42 MB",
+        androidMin: "8.0",
         releaseNotes: ["Autoridad global migrada"],
-        versionHistory: [{
-          version: "1.0.3",
-          date: "2026-08-09",
-          current: true,
-          size: "42 MB",
-          androidMin: "8.0",
-          notes: ["Seguridad de plataforma"],
-          archived: false,
-          mandatory: false,
-          internalSecret: "must-not-persist"
-        }]
+        mandatory: false
       }
     });
     assert.equal(ownerUpdate.response.status, 200);
     assert.equal(ownerUpdate.payload.ok, true);
     assert.equal(ownerUpdate.payload.data.version, "1.0.3");
+    assert.equal(ownerUpdate.payload.data.buildNumber, 22);
+    assert.equal(ownerUpdate.payload.data.sourceCommit, "c".repeat(40));
+    assert.equal(ownerUpdate.payload.data.sha256, "d".repeat(64));
+    assert.equal(ownerUpdate.payload.data.mandatory, false);
+    assert.deepEqual(ownerUpdate.payload.data.versionHistory.map((entry) => ({
+      version: entry.version,
+      current: entry.current
+    })), [
+      { version: "1.0.3", current: true },
+      { version: "1.0.2", current: false }
+    ]);
     assert.equal(JSON.stringify(ownerUpdate.payload).includes("internalSecret"), false);
 
     const updatedPublicInfo = await requestJson(context.baseUrl, "/app/info");
     assert.equal(updatedPublicInfo.response.status, 200);
     assert.equal(updatedPublicInfo.payload.data.version, "1.0.3");
+    assert.equal(updatedPublicInfo.payload.data.sha256, "d".repeat(64));
     assert.equal(JSON.stringify(updatedPublicInfo.payload).includes("internalSecret"), false);
 
     console.log("ok - global app and observability authority belongs only to Platform");

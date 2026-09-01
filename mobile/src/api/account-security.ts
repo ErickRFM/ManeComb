@@ -1,10 +1,5 @@
 import { apiClient } from '@/src/api/client';
-
-type ChangePasswordPayload = {
-  currentPassword: string;
-  newPassword: string;
-  confirmPassword: string;
-};
+import type { ChangePasswordPayload } from '@/src/api/account-security-validation';
 
 type ChangePasswordResult = {
   ok: boolean;
