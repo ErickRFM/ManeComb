@@ -68,6 +68,41 @@ jobs:
         shell: bash
         run: echo "GRADLE_USER_HOME=$HOME/.gradle" >> "$GITHUB_ENV"
 
+      - name: Resolve immutable release identity
+        id: release
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./mobile/app.json').version")
+          BUILD=$(node -p "require('./mobile/app.json').buildNumber")
+          TAG="v${VERSION}-build.${BUILD}"
+          ARTIFACT="manecomb-${VERSION}-build.${BUILD}.apk"
+          AAB="manecomb-${VERSION}-build.${BUILD}.aab"
+          RELEASE_DATE=$(date -u +%F)
+          PUBLIC_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ARTIFACT}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          echo "aab=$AAB" >> "$GITHUB_OUTPUT"
+          echo "release_date=$RELEASE_DATE" >> "$GITHUB_OUTPUT"
+          echo "public_url=$PUBLIC_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Reject an existing release identity
+        if: ${{ inputs.publish_github_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Git tag already exists and cannot be reused: $TAG" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release already exists, including a retained draft: $TAG" >&2
+            exit 1
+          fi
+
       - name: Require release secrets
         shell: bash
         run: |
@@ -110,25 +145,6 @@ jobs:
           npm run typecheck
           npm run verify:contracts
           npm run build
-
-      - name: Resolve immutable release identity
-        id: release
-        shell: bash
-        run: |
-          VERSION=$(node -p "require('./mobile/app.json').version")
-          BUILD=$(node -p "require('./mobile/app.json').buildNumber")
-          TAG="v${VERSION}-build.${BUILD}"
-          ARTIFACT="manecomb-${VERSION}-build.${BUILD}.apk"
-          AAB="manecomb-${VERSION}-build.${BUILD}.aab"
-          RELEASE_DATE=$(date -u +%F)
-          PUBLIC_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${ARTIFACT}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
-          echo "aab=$AAB" >> "$GITHUB_OUTPUT"
-          echo "release_date=$RELEASE_DATE" >> "$GITHUB_OUTPUT"
-          echo "public_url=$PUBLIC_URL" >> "$GITHUB_OUTPUT"
 
       - name: Materialize signing and Firebase configuration
         working-directory: mobile
@@ -176,16 +192,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish draft-first GitHub Release
+      - name: Create private draft GitHub Release
         if: ${{ inputs.publish_github_release }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if gh release view "${{ steps.release.outputs.tag }}" >/dev/null 2>&1; then
-            echo "Release/tag already exists: ${{ steps.release.outputs.tag }}" >&2
-            exit 1
-          fi
           gh release create "${{ steps.release.outputs.tag }}" \
             "mobile/dist/${{ steps.release.outputs.artifact }}" \
             "mobile/dist/${{ steps.release.outputs.aab }}" \
@@ -195,19 +207,56 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "ManeComb ${{ steps.release.outputs.version }} (${{ steps.release.outputs.build }})" \
             --notes "Release certificado desde $GITHUB_SHA. Ver release-manifest.json y app-release.sha256."
-          gh release edit "${{ steps.release.outputs.tag }}" --draft=false
 
-      - name: Download published APK and compare digest
+      - name: Inspect draft and download APK through authenticated API
         if: ${{ inputs.publish_github_release }}
+        working-directory: mobile
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/manecomb-release-verify"
-          curl --fail --location --retry 5 \
-            "${{ steps.release.outputs.public_url }}" \
+          gh api \
+            "repos/$GITHUB_REPOSITORY/releases/tags/${{ steps.release.outputs.tag }}" \
+            > "$RUNNER_TEMP/manecomb-release-verify/release.json"
+          ASSET_ID=$(node scripts/release-draft-verification.js inspect \
+            --release-json "$RUNNER_TEMP/manecomb-release-verify/release.json" \
+            --manifest "dist/release-manifest.json" \
+            --tag "${{ steps.release.outputs.tag }}" \
+            --source "$GITHUB_SHA" \
+            --aab "${{ steps.release.outputs.aab }}")
+          curl --fail --location --retry 5 --retry-all-errors --retry-delay 2 \
+            --header "Accept: application/octet-stream" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" \
             --output "$RUNNER_TEMP/manecomb-release-verify/${{ steps.release.outputs.artifact }}"
-          EXPECTED=$(node -p "require('./mobile/dist/release-manifest.json').sha256")
-          ACTUAL=$(sha256sum "$RUNNER_TEMP/manecomb-release-verify/${{ steps.release.outputs.artifact }}" | cut -d ' ' -f 1)
-          test "$EXPECTED" = "$ACTUAL"
+          node scripts/release-draft-verification.js verify \
+            --release-json "$RUNNER_TEMP/manecomb-release-verify/release.json" \
+            --manifest "dist/release-manifest.json" \
+            --artifact "$RUNNER_TEMP/manecomb-release-verify/${{ steps.release.outputs.artifact }}" \
+            --tag "${{ steps.release.outputs.tag }}" \
+            --source "$GITHUB_SHA" \
+            --aab "${{ steps.release.outputs.aab }}"
+
+      - name: Verify downloaded APK attestation
+        if: ${{ inputs.publish_github_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if gh attestation verify \
+              "$RUNNER_TEMP/manecomb-release-verify/${{ steps.release.outputs.artifact }}" \
+              --repo "$GITHUB_REPOSITORY"; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Attestation verification failed after $attempt attempts." >&2
+              exit 1
+            fi
+            sleep $((attempt * 2))
+          done
 
       - name: Record release authority handoff
         shell: bash
@@ -215,8 +264,8 @@ jobs:
           echo "## ManeComb Android release candidate" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Tag: \`${{ steps.release.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Published: \`${{ inputs.publish_github_release }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Backend authority must be updated only after the public digest check passes." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Publication requested: \`${{ inputs.publish_github_release }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend authority must be updated only after this verified draft becomes public." >> "$GITHUB_STEP_SUMMARY"
           echo '```json' >> "$GITHUB_STEP_SUMMARY"
           node -p "JSON.stringify(require('./mobile/dist/release-manifest.json').backendPatch, null, 2)" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -228,3 +277,24 @@ jobs:
         run: |
           rm -f android/app/manecomb-release.jks
           rm -f android/app/google-services.json
+
+      - name: Publish only the verified draft
+        if: ${{ inputs.publish_github_release && success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          rollback_to_draft() {
+            gh release edit "$TAG" --draft >/dev/null 2>&1 || true
+          }
+          trap rollback_to_draft ERR
+          gh release edit "$TAG" --draft=false
+          test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = "false"
+          curl --fail --location --retry 5 --retry-all-errors --retry-delay 2 \
+            "${{ steps.release.outputs.public_url }}" \
+            --output "$RUNNER_TEMP/manecomb-release-verify/public-${{ steps.release.outputs.artifact }}"
+          EXPECTED=$(node -p "require('./mobile/dist/release-manifest.json').sha256")
+          ACTUAL=$(sha256sum "$RUNNER_TEMP/manecomb-release-verify/public-${{ steps.release.outputs.artifact }}" | cut -d ' ' -f 1)
+          test "$EXPECTED" = "$ACTUAL"
+          trap - ERR

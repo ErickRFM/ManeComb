@@ -110,6 +110,11 @@ El workflow manual `.github/workflows/android-release-candidate.yml` falla antes
 del build si falta cualquiera. Ningún valor o archivo materializado se conserva
 como artefacto.
 
+`MANECOMB_FIREBASE_*` no forma parte del contrato de secretos de Actions. Es
+únicamente una alternativa de configuración runtime para builds locales
+históricos sin `google-services.json`; el workflow certificable exige y
+materializa exclusivamente `MANECOMB_GOOGLE_SERVICES_JSON_BASE64`.
+
 ## Build
 
 Desde `mobile/`:
@@ -157,10 +162,12 @@ sucio para impedir atribuir un binario a un commit distinto.
 ## Publicación y autoridad
 
 El canal actual es GitHub Releases porque el repositorio es público y el APK
-supera el límite por archivo de Cloudflare Pages. El workflow crea primero un
-draft, publica los artefactos, descarga el APK desde la URL anónima y compara su
-digest antes del handoff. R2 con dominio propio puede añadirse como espejo
-posterior; no sustituye la autoridad ni se habilita sin bucket/dominio/secretos.
+supera el límite por archivo de Cloudflare Pages. El workflow crea un Draft
+privado, valida que estén los cuatro assets completos, descarga el APK mediante
+la API autenticada, compara tamaño y digest, y verifica su attestation. Sólo
+entonces hace público el Release. R2 con dominio propio puede añadirse como
+espejo posterior; no sustituye la autoridad ni se habilita sin
+bucket/dominio/secretos.
 
 Sólo después de verificar la descarga se aplica `backendPatch` del manifiesto a
 `PATCH /api/platform/system/app/info` con una sesión `platform_owner`. El
@@ -170,6 +177,23 @@ la entrada actual de `versionHistory` y marca la previa como no actual.
 `/api/app/info` responde 503 si falta cualquiera. Para
 rollback se vuelve a publicar de forma atómica el manifiesto de un release
 anterior cuyo digest ya fue verificado.
+
+### Fallos y rollback
+
+- Un tag o Release existente aborta antes del build y nunca se sobrescribe.
+- Un upload parcial, digest distinto, red agotada o attestation inválida deja el
+  Release como Draft y bloquea la publicación.
+- Un rerun no reutiliza el Draft: el operador debe inspeccionarlo y eliminarlo o
+  incrementar `buildNumber`; no se crean dos autoridades con la misma identidad.
+- Si el último cambio a público devuelve un resultado ambiguo, el workflow
+  intenta regresarlo a Draft antes de fallar. Se confirma con
+  `gh release view <tag> --json isDraft`.
+- Si AppConfig falla después de publicar, el asset puede permanecer disponible,
+  pero `/api/app/info` conserva la versión anterior. Se reintenta únicamente el
+  `backendPatch` verificado; nunca se anticipa AppConfig.
+- El rollback productivo consiste en volver a aplicar atómicamente el manifiesto
+  verificado de un Release anterior. `mandatory` permanece `false` por defecto y
+  sólo cambia mediante input explícito.
 
 Registro histórico del 2026-06-11 (no es autoridad del candidato actual):
 

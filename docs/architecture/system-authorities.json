@@ -593,6 +593,7 @@
         "backend/src/modules/platform/system-authority-routes.js",
         "backend/src/services/app-release-certification.js",
         "mobile/scripts/release-manifest.js",
+        "mobile/scripts/release-draft-verification.js",
         ".github/workflows/android-release-candidate.yml"
       ],
       "consumers": [
