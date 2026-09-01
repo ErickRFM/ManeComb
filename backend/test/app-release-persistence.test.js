@@ -27,6 +27,12 @@ function createHarness() {
           state.appConfig = { _id: filter._id, ...clone(update.$setOnInsert || {}) };
         }
         if (!state.appConfig) return null;
+        if (
+          (filter.sourceCommit !== undefined && state.appConfig.sourceCommit !== filter.sourceCommit)
+          || (filter.sha256 !== undefined && state.appConfig.sha256 !== filter.sha256)
+        ) {
+          return null;
+        }
         if (update.$set) Object.assign(state.appConfig, clone(update.$set));
         state.appConfigWrites += 1;
         return state.appConfig;
@@ -154,6 +160,20 @@ async function main() {
   assert.deepEqual(stats.versions, { "1.3.0": 2 });
   assert.equal(stats.mostUsedVersion, "1.3.0");
   assert.equal(stats.lastPublication, "2026-08-15");
+
+  const compareAndSet = await repository.updateAppConfig(
+    { sourceCommit: "c".repeat(40), sha256: "d".repeat(64) },
+    { expectedSourceCommit: "a".repeat(40), expectedSha256: "b".repeat(64) }
+  );
+  assert.equal(compareAndSet.sourceCommit, "c".repeat(40));
+  await assert.rejects(
+    repository.updateAppConfig(
+      { sourceCommit: "e".repeat(40), sha256: "f".repeat(64) },
+      { expectedSourceCommit: "a".repeat(40), expectedSha256: "b".repeat(64) }
+    ),
+    (error) => error?.code === "APP_CONFIG_CONFLICT"
+  );
+  assert.equal((await repository.getAppConfig()).sourceCommit, "c".repeat(40));
 
   const embeddedOnly = new AppReleaseRepository(createEmbeddedFixture());
   assert.equal((await embeddedOnly.getAppConfig()).version, "0.0.1-fixture");

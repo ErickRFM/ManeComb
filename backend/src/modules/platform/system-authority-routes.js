@@ -310,14 +310,19 @@ router.patch(
       }
 
       const isPublication = RELEASE_PUBLICATION_FIELDS.every((field) => patch[field] !== undefined);
+      let releasePrecondition;
       if (isPublication) {
         const currentConfig = store.getAppConfig
           ? await Promise.resolve(store.getAppConfig())
           : null;
         patch.versionHistory = buildPublishedVersionHistory(currentConfig, patch);
+        releasePrecondition = {
+          expectedSourceCommit: String(currentConfig?.sourceCommit || ""),
+          expectedSha256: String(currentConfig?.sha256 || "")
+        };
       }
 
-      const updated = await Promise.resolve(store.updateAppConfig(patch));
+      const updated = await Promise.resolve(store.updateAppConfig(patch, releasePrecondition));
       await recordPlatformAction(req, {
         action: "platform.system.app.info.update",
         targetType: "app",
@@ -330,6 +335,13 @@ router.patch(
       });
       return res.json({ ok: true, data: updated });
     } catch (error) {
+      if (error?.code === "APP_CONFIG_CONFLICT") {
+        return res.status(409).json({
+          ok: false,
+          code: "app_config_conflict",
+          message: "La autoridad de release cambió durante la publicación; vuelve a leerla y reintenta"
+        });
+      }
       return next(error);
     }
   }

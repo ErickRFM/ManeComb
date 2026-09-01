@@ -1785,8 +1785,22 @@ function createEmbeddedStore() {
     return state.appConfig ? clone(state.appConfig) : null;
   }
 
-  function updateAppConfig(data) {
+  function updateAppConfig(data, options = {}) {
     const appConfig = state.appConfig || {};
+    const hasReleasePrecondition =
+      options.expectedSourceCommit !== undefined || options.expectedSha256 !== undefined;
+    if (
+      hasReleasePrecondition
+      && (
+        String(appConfig.sourceCommit || "") !== String(options.expectedSourceCommit || "")
+        || String(appConfig.sha256 || "") !== String(options.expectedSha256 || "")
+      )
+    ) {
+      const error = new Error("La autoridad de release cambió durante la publicación");
+      error.code = "APP_CONFIG_CONFLICT";
+      error.statusCode = 409;
+      throw error;
+    }
 
     if (data.name !== undefined) appConfig.name = data.name;
     if (data.version !== undefined) appConfig.version = data.version;
