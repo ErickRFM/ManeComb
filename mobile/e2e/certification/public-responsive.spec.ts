@@ -148,6 +148,7 @@ test.describe('CERT-PROD-01 — responsive público', () => {
 
     const headerButtons = header.getByRole('button');
     const buttonCount = await headerButtons.count();
+    const rightSafetyInset = viewport && viewport.width <= 640 ? 8 : 0;
     for (let index = 0; index < buttonCount; index += 1) {
       const box = await headerButtons.nth(index).boundingBox();
       expect(box, `La acción ${index + 1} debe tener geometría medible`).not.toBeNull();
@@ -155,8 +156,8 @@ test.describe('CERT-PROD-01 — responsive público', () => {
         expect(box.x, `La acción ${index + 1} no debe recortarse a la izquierda`).toBeGreaterThanOrEqual(0);
         expect(
           box.x + box.width,
-          `La acción ${index + 1} no debe recortarse a la derecha en ${viewport.width}px`
-        ).toBeLessThanOrEqual(viewport.width);
+          `La acción ${index + 1} debe conservar margen derecho en ${viewport.width}px`
+        ).toBeLessThanOrEqual(viewport.width - rightSafetyInset);
       }
     }
 

@@ -326,4 +326,6 @@ siendo la autoridad compilada del binario.
   y alineó exactamente el breakpoint del CTA secundario a 430 px. La matriz
   física de viewport detectó además que el inset de glow compactaba la tarjeta
   de plan a 264 px en un teléfono de 320 px; Mobile conserva ahora el ancho,
-  padding y escala completos desde el piso certificado de 320 px.
+  padding y escala completos desde el piso certificado de 320 px. El gate Linux
+  añadió 8 px de holgura a las acciones compactas para absorber diferencias de
+  métrica tipográfica sin recorte en el límite de 430 px.

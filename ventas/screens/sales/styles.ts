@@ -345,7 +345,7 @@ export const styles = StyleSheet.create({
   },
   actionButtonCompact: {
     minHeight: 42,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
   },
   actionButtonSolid: {
     backgroundColor: neonPalette.accent,
