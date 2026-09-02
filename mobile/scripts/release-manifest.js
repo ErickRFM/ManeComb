@@ -5,6 +5,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { assertCleanTrackedWorktree } = require('./tracked-worktree-status');
 
 const projectRoot = path.resolve(__dirname, '..');
 const defaultArtifactPath = path.join(projectRoot, 'dist', 'app-release.apk');
@@ -195,11 +196,6 @@ function gitOutput(args) {
   return String(result.stdout || '').trim();
 }
 
-function assertCleanTrackedWorktree() {
-  const status = gitOutput(['status', '--porcelain', '--untracked-files=no']);
-  if (status) fail('El arbol de trabajo tiene cambios rastreados; el artefacto no tendria procedencia exacta.');
-}
-
 function writeManifest(manifest, manifestPath, checksumPath) {
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
@@ -214,7 +210,10 @@ function runCli() {
   const checksumPath = path.resolve(projectRoot, options.checksum || defaultChecksumPath);
   const metadata = readAppMetadata();
   const sourceCommit = gitOutput(['rev-parse', 'HEAD']).toLowerCase();
-  assertCleanTrackedWorktree();
+  assertCleanTrackedWorktree({
+    repositoryRoot: path.resolve(projectRoot, '..'),
+    errorPrefix: '[release]'
+  });
 
   if (command === 'create') {
     const manifest = createReleaseManifest({

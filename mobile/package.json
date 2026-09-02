@@ -10,7 +10,7 @@
     "version:bump": "node ./scripts/app-version.js bump",
     "release:manifest": "node ./scripts/release-manifest.js create",
     "release:verify": "node ./scripts/release-manifest.js verify",
-    "release:manifest:test": "node ./scripts/release-manifest.test.js && node ./scripts/release-draft-verification.test.js",
+    "release:manifest:test": "node ./scripts/tracked-worktree-status.test.js && node ./scripts/release-manifest.test.js && node ./scripts/release-draft-verification.test.js",
     "android": "node ./scripts/android-run.js",
     "android:device": "node ./scripts/android-device.js",
     "android:debug": "cd android && gradlew.bat assembleDebug",
