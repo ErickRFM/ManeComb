@@ -4,13 +4,10 @@ import { spawnSync } from 'node:child_process';
 const ACCEPTANCE_EXPIRES_AT = Date.parse('2026-09-15T00:00:00Z');
 const EXPECTED_VULNERABLE_VERSIONS = new Map([
   ['image-size', '1.2.1'],
-  ['nanoid', '3.3.11'],
 ]);
 const ACCEPTED_ADVISORY_URLS = new Set([
   'https://github.com/advisories/GHSA-w3rx-r6r6-pgpr',
   'https://github.com/advisories/GHSA-5p2g-fcmc-qvqq',
-  'https://github.com/advisories/GHSA-28wg-ghj8-5hjv',
-  'https://github.com/advisories/GHSA-2v37-7h3g-55p8',
 ]);
 const BLOCKING_SEVERITIES = new Set(['high', 'critical']);
 
@@ -157,6 +154,6 @@ for (const entry of acceptedAdvisories) {
   console.warn(`- ${entry.name} [${entry.severity}]: ${entry.url}`);
 }
 console.warn(
-  'All high/critical findings resolve exclusively to the reviewed Nano ID and image-size advisories. ' +
+  'All high/critical findings resolve exclusively to the reviewed image-size advisories. ' +
   'Any new advisory, package version drift, or expiration fails this job.'
 );
