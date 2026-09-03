@@ -57,6 +57,9 @@ jobs:
             mobile/package-lock.json
             ventas/package-lock.json
 
+      - name: Verify clean worktree after checkout and Node setup
+        run: node mobile/scripts/tracked-worktree-status.js --label "checkout and Node setup"
+
       - name: Setup Java
         uses: actions/setup-java@v6
         with:
@@ -119,11 +122,17 @@ jobs:
           node scripts/validate-system-authorities.mjs
           node scripts/validate-environment-contract.mjs
 
+      - name: Verify clean worktree after architectural gates
+        run: node mobile/scripts/tracked-worktree-status.js --label "architectural gates"
+
       - name: Install and test backend
         working-directory: backend
         run: |
           npm ci
           npm test
+
+      - name: Verify clean worktree after backend certification
+        run: node mobile/scripts/tracked-worktree-status.js --label "backend certification"
 
       - name: Install and certify mobile sources
         working-directory: mobile
@@ -134,6 +143,9 @@ jobs:
           npm run lint -- --max-warnings=0
           npm test
           npm run release:manifest:test
+
+      - name: Verify clean worktree after mobile certification
+        run: node mobile/scripts/tracked-worktree-status.js --label "mobile certification"
 
       - name: Install and build Ventas
         working-directory: ventas
@@ -146,17 +158,25 @@ jobs:
           npm run verify:contracts
           npm run build
 
+      - name: Verify clean worktree after Ventas build
+        run: node mobile/scripts/tracked-worktree-status.js --label "Ventas build"
+
       - name: Materialize signing and Firebase configuration
         working-directory: mobile
         shell: bash
         run: |
           printf '%s' "$MANECOMB_ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/manecomb-release.jks
           printf '%s' "$MANECOMB_GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > android/app/google-services.json
-          chmod +x android/gradlew
+
+      - name: Verify clean worktree after release materialization
+        run: node mobile/scripts/tracked-worktree-status.js --label "release materialization"
 
       - name: Build signed APK and AAB
         working-directory: mobile
         run: npm run android:release
+
+      - name: Verify clean worktree after signed Android build
+        run: node mobile/scripts/tracked-worktree-status.js --label "signed Android build"
 
       - name: Create and verify provenance manifest
         working-directory: mobile
