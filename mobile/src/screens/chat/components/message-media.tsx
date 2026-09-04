@@ -333,10 +333,7 @@ export function ImageMessageBubble({
   const recoveryInFlightRef = useRef<Promise<boolean> | null>(null);
   const automaticRecoverySignatureRef = useRef<string | null>(null);
   const resolvedUrl = resolveAssetUrl(message.imageUrl);
-  const headers = useMemo(
-    () => getAuthHeaderSnapshot(token),
-    [retryKey, token]
-  );
+  const headers = getAuthHeaderSnapshot(token);
   const displayUrl = useMemo(() => {
     if (!resolvedUrl || retryKey === 0) return resolvedUrl;
     return `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}mediaRetry=${retryKey}`;
