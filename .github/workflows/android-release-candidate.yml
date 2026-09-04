@@ -236,8 +236,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/manecomb-release-verify"
+          TAG="${{ steps.release.outputs.tag }}"
+          RELEASE_ID="$(gh release view "$TAG" --json databaseId --jq .databaseId)"
+          test -n "$RELEASE_ID"
           gh api \
-            "repos/$GITHUB_REPOSITORY/releases/tags/${{ steps.release.outputs.tag }}" \
+            "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
             > "$RUNNER_TEMP/manecomb-release-verify/release.json"
           ASSET_ID=$(node scripts/release-draft-verification.js inspect \
             --release-json "$RUNNER_TEMP/manecomb-release-verify/release.json" \

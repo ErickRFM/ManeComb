@@ -73,8 +73,14 @@ function inspectDraftRelease({ release, manifest, expectedTag, expectedSource, e
   if (requiredAssetNames.some((name) => !String(name || '').trim())) {
     fail('La lista de assets esperados es incompleta.');
   }
+  if (new Set(requiredAssetNames).size !== requiredAssetNames.length) {
+    fail('La lista de assets esperados contiene nombres duplicados.');
+  }
 
   const assets = Array.isArray(release.assets) ? release.assets : [];
+  if (assets.length !== requiredAssetNames.length) {
+    fail('El Draft debe contener exclusivamente los assets esperados.');
+  }
   for (const name of requiredAssetNames) {
     const matches = assets.filter((asset) => asset?.name === name);
     if (matches.length !== 1) fail(`El Draft debe contener exactamente un asset ${name}.`);

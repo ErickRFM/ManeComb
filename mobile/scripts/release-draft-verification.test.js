@@ -33,6 +33,7 @@ function main() {
       publicUrl,
     };
     const release = {
+      id: 381667061,
       draft: true,
       published_at: null,
       tag_name: tag,
@@ -54,6 +55,7 @@ function main() {
       ['wrong source', (value) => { value.target_commitish = 'b'.repeat(40); }],
       ['partial assets', (value) => { value.assets = value.assets.filter((asset) => asset.name !== aab); }],
       ['duplicate APK', (value) => { value.assets.push({ ...value.assets[0], id: 999 }); }],
+      ['unexpected asset', (value) => { value.assets.push({ id: 998, name: 'unexpected.txt', state: 'uploaded', size: 1 }); }],
       ['wrong remote size', (value) => { value.assets[0].size += 1; }],
       ['wrong remote digest', (value) => { value.assets[0].digest = `sha256:${'b'.repeat(64)}`; }],
     ]) {
@@ -84,6 +86,33 @@ function main() {
     assert(draftIndex > buildIndex && draftIndex < downloadIndex);
     assert(downloadIndex < attestationIndex && attestationIndex < cleanupIndex);
     assert(cleanupIndex < publishIndex);
+    const draftLookup = workflow.slice(downloadIndex, attestationIndex);
+    assert.match(draftLookup, /gh release view "\$TAG" --json databaseId --jq \.databaseId/);
+    assert.match(draftLookup, /test -n "\$RELEASE_ID"/);
+    assert.match(draftLookup, /repos\/\$GITHUB_REPOSITORY\/releases\/\$RELEASE_ID/);
+    assert.doesNotMatch(draftLookup, /releases\/tags\//);
+
+    const releaseId = 381667061;
+    const requestDraft = (endpoint) => {
+      if (endpoint === `repos/ErickRFM/ManeComb/releases/tags/${tag}`) {
+        const error = new Error('Not Found');
+        error.status = 404;
+        throw error;
+      }
+      if (endpoint === `repos/ErickRFM/ManeComb/releases/${releaseId}`) return release;
+      throw new Error(`Unexpected endpoint: ${endpoint}`);
+    };
+    assert.throws(
+      () => requestDraft(`repos/ErickRFM/ManeComb/releases/tags/${tag}`),
+      (error) => error.status === 404
+    );
+    assert.deepEqual(
+      inspectDraftRelease({
+        ...common,
+        release: requestDraft(`repos/ErickRFM/ManeComb/releases/${releaseId}`),
+      }),
+      { assetId: 101 }
+    );
     assert.equal(workflow.slice(0, publishIndex).includes('--draft=false'), false);
     assert.match(workflow, /mandatory_update:[\s\S]*?default: false/);
   } finally {
