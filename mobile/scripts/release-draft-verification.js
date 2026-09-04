@@ -95,8 +95,11 @@ function inspectDraftRelease({ release, manifest, expectedTag, expectedSource, e
   if (apkAsset.digest && apkAsset.digest !== `sha256:${String(manifest.sha256).toLowerCase()}`) {
     fail('El digest reportado por GitHub no coincide con el manifiesto.');
   }
-  if (apkAsset.browser_download_url !== manifest.publicUrl) {
-    fail('La URL pública prevista no coincide con el asset remoto.');
+  // Draft assets use temporary untagged-* URLs; downloads are authorized by asset ID.
+  const repository = requireText(manifest.repository, 'repository');
+  const canonicalPublicUrl = `https://github.com/${repository}/releases/download/${tag}/${manifest.artifactFileName}`;
+  if (manifest.publicUrl !== canonicalPublicUrl) {
+    fail('La URL pública prevista no coincide con repository, tag y nombre del APK.');
   }
 
   return { assetId: apkAsset.id };
