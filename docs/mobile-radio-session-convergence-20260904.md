@@ -28,6 +28,7 @@ La descripción física identifica qué UI presentó cada estado, pero no incluy
 - La revocación/rechazo terminal invalida el epoch, retira listeners y timers globales, detiene el runtime GPS y ordena el bloqueo nativo. El nativo cancela su timer, desconecta y libera audio. Foreground, cambio de canal, llamada y callbacks tardíos no pueden reabrirlo.
 - Un segundo rechazo del token renovado antes de la aceptación de ambos transportes termina la recuperación. El simple connect del socket JS ya no reinicia por sí solo el presupuesto de auth Android.
 - Revisión de integración: tampoco lo reinicia el connect nativo durante JOINING. La regresión reprodujo dos refresh antes del ajuste y uno después; sólo LISTENING/RECEIVING/TRANSMITTING confirma aceptación del canal.
+- Un 401 tardío de una petición enviada con el token anterior reutiliza una sola vez las credenciales ya rotadas, sin otra renovación. Antes de recuperar/replay/ACCOUNT_SUSPENDED el interceptor respeta el sessionEpoch existente para no actuar sobre otra cuenta. Regresión RED (dos renovaciones) → GREEN (una), más guards de cuenta vieja.
 - Fallos de red, 429 y 5xx conservan recuperación, sin «Sesión expirada». Se respeta un cooldown de al menos 30 s y `Retry-After` si es mayor.
 - Foreground vuelve a leer el snapshot real del servicio, incluyendo rechazos ocurridos mientras JS estaba suspendido.
 - `forbidden` del canal no se interpreta como revocación de toda la cuenta: queda como error de permisos, sin renovar credenciales ni reintentar el permiso.
@@ -74,6 +75,8 @@ También se ejecutaron `validate-system-audit-gates.mjs`, `validate-system-autho
 Resultado final local: **typecheck PASS; lint PASS; Mobile 120 suites / 669 tests PASS, además del runner punto-a-punto; JVM Android 83 tests PASS; assembleDebug PASS; tres validadores de arquitectura PASS; versión 1.3.0 (22) sin cambio; diff check PASS**. No se ejecutó CI remoto porque no se creó PR ni commit.
 
 El APK debug local es `mobile/android/app/build/outputs/apk/debug/app-debug.apk`. No se instaló, no es candidato certificado y no debe confundirse con el APK público build 22.
+
+Revisión posterior al commit inicial: typecheck y lint PASS; suite completa 120 suites / 672 tests PASS tras añadir 401 tardío sin doble refresh y dos casos de epoch anterior (401 y ACCOUNT_SUSPENDED). El segundo commit exige nuevas corridas remotas; no se reutilizan checks del HEAD anterior para merge.
 
 ## Gate físico pendiente
 

@@ -1,5 +1,6 @@
 import axios, { isAxiosError, type AxiosError } from 'axios';
 import { Platform } from 'react-native';
+import { getSessionEpoch } from '@/src/store/session-epoch';
 import { formatRetryAfter, parseRetryAfterSeconds } from './retry-after';
 import { confirmChatMediaAttempt, ensureChatMediaAttemptIdentity } from './chat-media-attempt';
 import {
@@ -66,6 +67,7 @@ type SessionRecoveryConfig = {
 };
 
 type RetryableRequestConfig = NonNullable<AxiosError['config']> & {
+  _manecombSessionEpoch?: number;
   _authRetry?: boolean;
   _retryCount?: number;
   _skipAuthRefresh?: boolean;
@@ -418,6 +420,13 @@ apiClient.interceptors.response.use(
     const config = error.config as RetryableRequestConfig | undefined;
     logHttpError(error);
 
+    // Auth recovery runs before the response boundary interceptor. Respect its
+    // existing epoch before refreshing/replaying or expiring a newer account.
+    if (typeof config?._manecombSessionEpoch === 'number' &&
+        config._manecombSessionEpoch !== getSessionEpoch()) {
+      return Promise.reject(error);
+    }
+
     if (
       error.response?.status === 401 &&
       (error.response?.data as { code?: string } | undefined)?.code === 'ACCOUNT_SUSPENDED'
@@ -428,6 +437,17 @@ apiClient.interceptors.response.use(
 
     if (isAuthRefreshCandidate(error)) {
       try {
+        const currentAuthorization = apiClient.defaults.headers.common.Authorization;
+        const attemptedAuthorization = config?.headers?.Authorization;
+        if (config && typeof currentAuthorization === 'string' && currentAuthorization &&
+            typeof attemptedAuthorization === 'string' && attemptedAuthorization &&
+            attemptedAuthorization !== currentAuthorization) {
+          // Another consumer already rotated this session while this old-token
+          // request was in flight. Replay once; do not rotate again for its 401.
+          config._authRetry = true;
+          config.headers.Authorization = currentAuthorization;
+          return apiClient(config);
+        }
         const nextToken = await refreshAccessToken();
 
         if (nextToken && config) {
