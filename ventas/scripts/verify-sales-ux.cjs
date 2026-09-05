@@ -22,6 +22,7 @@ const paymentSection = read('screens/checkout/components/checkout-payment-sectio
 const checkoutStepper = read('screens/checkout/components/checkout-stepper.tsx');
 const checkoutSummary = read('screens/checkout/components/checkout-order-summary.tsx');
 const commercialFaq = read('src/constants/commercial.ts');
+const checkoutContext = read('src/utils/checkout-context.ts');
 
 // UX-01: la demo pública entra por el camino de menor fricción, pero tarjeta sigue disponible.
 assert.match(paymentSection, /trialDefaultApplied/);
@@ -37,6 +38,16 @@ assert.match(authScreen, /formatCurrency\(selectedPlan\.price\)/);
 assert.match(authScreen, /label="Correo o teléfono"/);
 assert.match(authScreen, /Crear cuenta y continuar/);
 assert.match(authScreen, /La recuperación automática utiliza correo/);
+
+// UX-02A: entrar directamente a login/registro no puede resucitar una selección vieja de localStorage.
+assert.match(checkoutContext, /function isDirectAuthRouteWithoutCheckoutIntent\(\)/);
+assert.match(checkoutContext, /pathname === '\/ventas\/login'/);
+assert.match(checkoutContext, /pathname === '\/ventas\/registro'/);
+assert.match(checkoutContext, /new URLSearchParams[\s\S]*\.get\('planId'\)/);
+assert.match(
+  checkoutContext,
+  /if \(!canUseStorage\(\) \|\| isDirectAuthRouteWithoutCheckoutIntent\(\)\) return null;/
+);
 
 // UX-02B: la contraseña se explica y diagnostica por requisito con semántica Unicode.
 assert.match(authUtils, /8 caracteres o más/);
