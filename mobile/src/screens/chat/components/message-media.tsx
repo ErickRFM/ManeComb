@@ -333,15 +333,34 @@ export function ImageMessageBubble({
   const recoveryInFlightRef = useRef<Promise<boolean> | null>(null);
   const automaticRecoverySignatureRef = useRef<string | null>(null);
   const resolvedUrl = resolveAssetUrl(message.imageUrl);
+  const recoveryScopeRef = useRef({ url: resolvedUrl, active: true });
+  const terminalFailure = ['unauthorized', 'forbidden', 'missing'].includes(failureReason || '');
   const headers = getAuthHeaderSnapshot(token);
   const displayUrl = useMemo(() => {
     if (!resolvedUrl || retryKey === 0) return resolvedUrl;
     return `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}mediaRetry=${retryKey}`;
   }, [resolvedUrl, retryKey]);
 
+  useEffect(() => {
+    const scope = { url: resolvedUrl, active: true };
+    recoveryScopeRef.current = scope;
+    recoveryInFlightRef.current = null;
+    automaticRecoverySignatureRef.current = null;
+    setHasError(false);
+    setFailureReason(null);
+    setIsLoading(true);
+    setIsRecovering(false);
+    setIsFullscreen(false);
+    setRetryKey(0);
+    return () => { scope.active = false; };
+  }, [resolvedUrl]);
+
   const recoverImage = useCallback(() => {
-    if (!resolvedUrl) return Promise.resolve(false);
+    if (!resolvedUrl || terminalFailure || networkStatus !== 'online') return Promise.resolve(false);
     if (recoveryInFlightRef.current) return recoveryInFlightRef.current;
+    const scope = recoveryScopeRef.current;
+    const isCurrent = () => scope.active && scope === recoveryScopeRef.current && scope.url === resolvedUrl;
+    if (!isCurrent()) return Promise.resolve(false);
 
     const attempt = (async () => {
       setIsRecovering(true);
@@ -356,17 +375,19 @@ export function ImageMessageBubble({
           responseType: 'arraybuffer',
         });
 
+        if (!isCurrent()) return false;
         setHasError(false);
         setIsLoading(true);
         setRetryKey((current) => current + 1);
         return true;
       } catch (error) {
+        if (!isCurrent()) return false;
         setFailureReason(classifyImageLoadFailure(error));
         setHasError(true);
         setIsLoading(false);
         return false;
       } finally {
-        setIsRecovering(false);
+        if (isCurrent()) setIsRecovering(false);
       }
     })();
 
@@ -377,17 +398,18 @@ export function ImageMessageBubble({
       }
     });
     return attempt;
-  }, [resolvedUrl, token]);
+  }, [networkStatus, resolvedUrl, terminalFailure, token]);
 
   const requestAutomaticRecovery = useCallback(() => {
-    if (!resolvedUrl) return;
+    if (!resolvedUrl || terminalFailure || networkStatus !== 'online' || recoveryInFlightRef.current) return;
     const signature = `${resolvedUrl}|${token || 'no-token'}|${networkStatus}`;
     if (automaticRecoverySignatureRef.current === signature) return;
     automaticRecoverySignatureRef.current = signature;
     void recoverImage();
-  }, [networkStatus, recoverImage, resolvedUrl, token]);
+  }, [networkStatus, recoverImage, resolvedUrl, terminalFailure, token]);
 
   useEffect(() => {
+    if (networkStatus === 'offline') automaticRecoverySignatureRef.current = null;
     if (!hasError || isRecovering || networkStatus !== 'online') return;
     requestAutomaticRecovery();
   }, [hasError, isRecovering, networkStatus, requestAutomaticRecovery]);
@@ -398,17 +420,18 @@ export function ImageMessageBubble({
     <View style={styles.mediaContainer}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={hasError ? 'Reintentar imagen' : 'Abrir imagen'}
+        accessibilityLabel={terminalFailure ? 'Imagen no disponible' : hasError ? 'Reintentar imagen' : 'Abrir imagen'}
+        disabled={terminalFailure || isRecovering || (hasError && networkStatus !== 'online')}
         onPress={() => {
           if (hasError) {
             automaticRecoverySignatureRef.current = null;
-            void recoverImage();
+            requestAutomaticRecovery();
             return;
           }
           if (!isRecovering) setIsFullscreen(true);
         }}
         style={styles.mediaPreviewShell}>
-        <Image
+        {!terminalFailure ? <Image
           key={retryKey}
           source={{ uri: displayUrl, headers }}
           style={styles.messageImage}
@@ -416,6 +439,7 @@ export function ImageMessageBubble({
           onError={() => {
             setHasError(true);
             setIsLoading(false);
+            if (networkStatus !== 'online') setFailureReason('network');
             requestAutomaticRecovery();
           }}
           onLoad={() => {
@@ -428,7 +452,7 @@ export function ImageMessageBubble({
             setIsLoading(true);
             setHasError(false);
           }}
-        />
+        /> : <View testID="unavailable-image-placeholder" style={styles.messageImage} />}
         {isLoading || isRecovering ? (
           <View style={styles.mediaLoadingOverlay}>
             <ActivityIndicator color="#FFFFFF" />
@@ -474,11 +498,11 @@ export function ImageMessageBubble({
             }}>
             <MaterialCommunityIcons name="share-variant" size={26} color="#FFFFFF" />
           </Pressable>
-          <Image
+          {!terminalFailure ? <Image
             source={{ uri: displayUrl, headers }}
             style={styles.fullscreenImage}
             resizeMode="contain"
-          />
+          /> : null}
         </View>
       </Modal>
     </View>
@@ -512,8 +536,12 @@ export function VideoMessageBubble({
   const playbackUrl = resolvedUrl
     ? `${resolvedUrl}${resolvedUrl.includes('?') ? '&' : '?'}retry=${retryKey}`
     : null;
+  const videoSource = useMemo(
+    () => playbackUrl ? { uri: playbackUrl, headers } : null,
+    [headers, playbackUrl]
+  );
   const player = useVideoPlayer(
-    playbackUrl ? { uri: playbackUrl, headers } : null,
+    videoSource,
     (videoPlayer) => {
       videoPlayer.loop = false;
     }
