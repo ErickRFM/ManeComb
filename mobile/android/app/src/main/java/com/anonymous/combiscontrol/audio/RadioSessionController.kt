@@ -47,8 +47,10 @@ class RadioSessionController(
   private var credentials: RadioSessionCredentials? = null
   private var pendingReconnect: RadioCancellable? = null
   private var active = false
+  private var authBlocked = false
+  private var callOwnsAudio = false
   /** Generacion de sesion: descarta ACK y eventos de un canal ya abandonado. */
-  private var generation = 0
+  @Volatile private var generation = 0
 
   init {
     transport.setListener(this)
@@ -65,6 +67,8 @@ class RadioSessionController(
 
   fun deactivate() = confine { deactivateOnSession() }
 
+  fun setSessionAuthState(unauthorized: Boolean) = confine { blockSessionAuth(unauthorized) }
+
   fun requestTransmission() = confine { requestTransmissionOnSession() }
 
   fun endTransmission() = confine { endTransmissionOnSession() }
@@ -78,21 +82,26 @@ class RadioSessionController(
 
   fun onAudioFailure(code: String) = confine { audioFailureOnSession(code) }
 
-  override fun onConnected() = confine { connectedOnSession() }
+  private fun transportEvent(action: () -> Unit) {
+    val eventGeneration = generation
+    confine { if (eventGeneration == generation) action() }
+  }
+
+  override fun onConnected() = transportEvent { connectedOnSession() }
 
   override fun onDisconnected(reason: RadioDisconnectReason) =
-    confine { disconnectedOnSession(reason) }
+    transportEvent { disconnectedOnSession(reason) }
 
   override fun onRemoteTransmissionStarted(transmissionId: String, operator: RadioOperator) =
-    confine { remoteStartedOnSession(transmissionId, operator) }
+    transportEvent { remoteStartedOnSession(transmissionId, operator) }
 
   override fun onRemoteFrame(transmissionId: String, sequence: Int, data: String) =
-    confine { remoteFrameOnSession(transmissionId, sequence, data) }
+    transportEvent { remoteFrameOnSession(transmissionId, sequence, data) }
 
   override fun onRemoteTransmissionEnded(transmissionId: String, reason: String?) =
-    confine { remoteEndedOnSession(transmissionId, reason) }
+    transportEvent { remoteEndedOnSession(transmissionId, reason) }
 
-  override fun onServerError(message: String) = confine { serverErrorOnSession() }
+  override fun onServerError(message: String) = transportEvent { serverErrorOnSession() }
 
   // ---------------- Sesion (hilo unico) ----------------
 
@@ -114,7 +123,9 @@ class RadioSessionController(
     if (credentialsChanged) {
       RadioLog.event("activate", "channelId" to channelId, "reason" to "identity")
       releaseChannel()
-      dispatch(RadioEvent.Activate(channelId))
+      authBlocked = false
+      dispatch(RadioEvent.CredentialsChanged(channelId, nextCredentials.authRevision))
+      if (callOwnsAudio) dispatch(RadioEvent.CallStarted)
       reconnectPolicy.reset()
       transport.connect(nextCredentials)
       return
@@ -124,7 +135,7 @@ class RadioSessionController(
   }
 
   private fun selectChannelOnSession(channelId: String) {
-    if (!active || channelId.isBlank()) return
+    if (!active || authBlocked || channelId.isBlank()) return
     if (state.channelId == channelId && state.phase != RadioPhase.IDLE) return
 
     // Cambiar de canal cierra lo que estuviera en curso en el anterior antes de
@@ -139,6 +150,8 @@ class RadioSessionController(
   private fun deactivateOnSession() {
     RadioLog.event("deactivate")
     active = false
+    authBlocked = false
+    callOwnsAudio = false
     generation += 1
     cancelReconnect()
     releaseChannel()
@@ -149,6 +162,7 @@ class RadioSessionController(
   }
 
   private fun requestTransmissionOnSession() {
+    if (!active || authBlocked) return
     val channelId = state.channelId ?: return
     val identity = credentials ?: return
     if (state.phase != RadioPhase.LISTENING) return
@@ -181,6 +195,14 @@ class RadioSessionController(
 
         if (!ack.ok || ack.transmissionId == null) {
           RadioLog.warn("floor_denied", "channelId" to channelId, "error" to ack.error)
+          if (ack.error == RadioSessionReducer.UNAUTHORIZED) {
+            blockSessionAuth(false)
+            return@confine
+          }
+          if (ack.error == RadioSessionReducer.FORBIDDEN) {
+            dispatch(RadioEvent.JoinRejected(false, "forbidden"))
+            return@confine
+          }
           dispatch(RadioEvent.FloorDenied(ack.error ?: "radio_unavailable", ack.transmitter))
           // Si el backend dice que no estamos en la sala, el cliente debe
           // reincorporarse solo; de otro modo quedaria sin poder transmitir nunca.
@@ -224,6 +246,8 @@ class RadioSessionController(
 
   /** Llamadas tienen prioridad: el microfono no puede compartirse. */
   private fun callStartedOnSession() {
+    callOwnsAudio = true
+    if (authBlocked) return
     if (state.phase == RadioPhase.PAUSED_BY_CALL) return
     val channelId = state.channelId
     val transmissionId = state.transmissionId
@@ -237,6 +261,8 @@ class RadioSessionController(
   }
 
   private fun callEndedOnSession() {
+    callOwnsAudio = false
+    if (authBlocked) return
     if (state.phase != RadioPhase.PAUSED_BY_CALL) return
     RadioLog.event("call_resume")
     dispatch(RadioEvent.CallEnded)
@@ -275,18 +301,23 @@ class RadioSessionController(
   }
 
   private fun connectedOnSession() {
+    if (!active || authBlocked) return
     reconnectPolicy.reset()
     dispatch(RadioEvent.TransportConnected)
     if (active && state.phase != RadioPhase.PAUSED_BY_CALL) joinCurrentChannel()
   }
 
   private fun disconnectedOnSession(reason: RadioDisconnectReason) {
+    if (!active || authBlocked) return
+    generation += 1
     // Perder el transporte mientras se transmite cierra el microfono aunque el
     // runtime de React este congelado: nunca queda capturando a ciegas.
     audio.releaseAudio()
 
     if (reason == RadioDisconnectReason.UNAUTHORIZED) {
-      dispatch(RadioEvent.JoinRejected(unauthorized = true, code = "radio_unauthorized"))
+      // A handshake rejection is not proof that refresh is revoked. Park the
+      // native transport and ask the JS session authority through the snapshot.
+      blockSessionAuth(false)
       return
     }
 
@@ -296,6 +327,7 @@ class RadioSessionController(
   }
 
   private fun remoteStartedOnSession(transmissionId: String, operator: RadioOperator) {
+    if (!active || authBlocked || !state.connected) return
     // La autoridad de la transmision propia es el ACK, no el eco del broadcast.
     if (operator.id == credentials?.userId) return
     if (state.phase == RadioPhase.TRANSMITTING || state.phase == RadioPhase.PAUSED_BY_CALL) return
@@ -339,6 +371,7 @@ class RadioSessionController(
   // ---------------- Interno ----------------
 
   private fun joinCurrentChannel() {
+    if (!active || authBlocked) return
     val channelId = state.channelId ?: return
     val joinGeneration = generation
     RadioLog.event("join_requested", "channelId" to channelId)
@@ -352,15 +385,19 @@ class RadioSessionController(
           return@confine
         }
 
-        val unauthorized = ack.error == RadioSessionReducer.FORBIDDEN ||
-          ack.error == RadioSessionReducer.UNAUTHORIZED
+        val unauthorized = ack.error == RadioSessionReducer.UNAUTHORIZED
         RadioLog.warn("join_denied", "channelId" to channelId, "error" to ack.error)
         if (unauthorized) {
-          dispatch(RadioEvent.JoinRejected(true, ack.error ?: "radio_unauthorized"))
+          blockSessionAuth(false)
+          return@confine
+        }
+        if (ack.error == RadioSessionReducer.FORBIDDEN) {
+          // A channel permission denial is not a revoked app session.
+          dispatch(RadioEvent.JoinRejected(false, "forbidden"))
           return@confine
         }
 
-        dispatch(RadioEvent.JoinRejected(false, ack.error ?: "radio_join_failed"))
+        dispatch(RadioEvent.TransportReconnecting)
         if (active) scheduleReconnect()
       }
     }
@@ -371,13 +408,14 @@ class RadioSessionController(
    * Reanudar solo puede producir audio que nadie sabe que se esta enviando.
    */
   private fun scheduleReconnect() {
+    if (!active || authBlocked) return
     cancelReconnect()
     val identity = credentials ?: return
     val delay = reconnectPolicy.nextDelayMs()
     RadioLog.event("reconnect_scheduled", "delayMs" to delay, "attempt" to reconnectPolicy.attempts())
     pendingReconnect = scheduler.postDelayed(delay) {
       pendingReconnect = null
-      if (!active) return@postDelayed
+      if (!active || authBlocked) return@postDelayed
       RadioLog.event("reconnect_attempt")
       transport.connect(identity)
     }
@@ -386,6 +424,18 @@ class RadioSessionController(
   private fun cancelReconnect() {
     pendingReconnect?.cancel()
     pendingReconnect = null
+  }
+
+  private fun blockSessionAuth(unauthorized: Boolean) {
+    if (!active) return
+    // Once terminal, an older recovery command must not downgrade the decision.
+    if (state.phase == RadioPhase.UNAUTHORIZED && !unauthorized) return
+    authBlocked = true
+    generation += 1
+    cancelReconnect()
+    releaseChannel()
+    transport.disconnect()
+    dispatch(RadioEvent.SessionAuthBlocked(unauthorized))
   }
 
   private fun abortLocalCapture(code: String) {

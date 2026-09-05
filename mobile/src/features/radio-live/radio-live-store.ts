@@ -9,6 +9,7 @@ import {
 } from './radio-live-types';
 
 let runtimeFactory: () => RadioLiveRuntime = createRadioLiveRuntime;
+let activationRevision = Date.now();
 
 /** Punto de inyeccion para pruebas. En produccion siempre es el adaptador real. */
 export function setRadioLiveRuntimeFactory(factory: (() => RadioLiveRuntime) | null) {
@@ -19,8 +20,10 @@ type RadioLiveStore = RadioLiveState & {
   _runtime: RadioLiveRuntime | null;
   _unsubscribe: (() => void) | null;
   _sessionKey: string | null;
+  _activationRevision: number;
   activate: (input: RadioLiveActivation) => void;
   setCallActive: (active: boolean) => void;
+  setSessionAuthState: (state: 'recovering' | 'unauthorized') => void;
   requestTransmission: () => Promise<RadioLiveTransmissionResult>;
   endTransmission: () => Promise<RadioLiveTransmissionResult>;
   reset: () => void;
@@ -37,7 +40,10 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
     if (current) return current;
 
     const runtime = runtimeFactory();
-    const unsubscribe = runtime.subscribe((state) => set(state));
+    const unsubscribe = runtime.subscribe((state) => {
+      // Ignore native publications queued before a credential rotation/logout.
+      if (get()._runtime === runtime && state.authRevision === get()._activationRevision) set(state);
+    });
     set({ _runtime: runtime, _unsubscribe: unsubscribe });
     return runtime;
   };
@@ -47,6 +53,7 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
     _runtime: null,
     _unsubscribe: null,
     _sessionKey: null,
+    _activationRevision: 0,
 
     activate: (input) => {
       const channelId = String(input.channelId || '').trim();
@@ -71,14 +78,19 @@ export const useRadioLiveStore = create<RadioLiveStore>()((set, get) => {
         return;
       }
 
-      set({ _sessionKey: identityKey });
-      void runtime.activate({ ...input, channelId, userId, token, socketUrl });
+      const authRevision = ++activationRevision;
+      set({ _sessionKey: identityKey, _activationRevision: authRevision });
+      void runtime.activate({ ...input, channelId, userId, token, socketUrl, authRevision });
     },
 
     setCallActive: (active) => {
       const runtime = get()._runtime;
       if (!runtime) return;
       void runtime.setCallActive(active);
+    },
+
+    setSessionAuthState: (state) => {
+      void get()._runtime?.setSessionAuthState(state);
     },
 
     requestTransmission: async () => {

@@ -24,6 +24,7 @@ export type RadioLiveOperator = {
 };
 
 export type RadioLiveState = {
+  authRevision: number;
   phase: RadioLivePhase;
   channelId: string | null;
   transmissionId: string | null;
@@ -36,6 +37,7 @@ export type RadioLiveState = {
 };
 
 export type RadioLiveActivation = {
+  authRevision?: number;
   channelId: string;
   token: string;
   userId: string;
@@ -58,6 +60,7 @@ export type RadioLiveRuntime = {
   requestTransmission: () => Promise<RadioLiveTransmissionResult>;
   endTransmission: () => Promise<RadioLiveTransmissionResult>;
   setCallActive: (active: boolean) => Promise<void>;
+  setSessionAuthState: (state: 'recovering' | 'unauthorized') => Promise<void>;
   deactivate: () => Promise<void>;
   subscribe: (listener: (state: RadioLiveState) => void) => () => void;
   readSnapshot: () => Promise<RadioLiveState>;
@@ -65,6 +68,7 @@ export type RadioLiveRuntime = {
 
 export function initialRadioLiveState(): RadioLiveState {
   return {
+    authRevision: 0,
     phase: 'IDLE',
     channelId: null,
     transmissionId: null,
@@ -78,6 +82,7 @@ export function initialRadioLiveState(): RadioLiveState {
 /** Proyeccion 1:1 de la instantanea nativa. No reinterpreta ningun hecho. */
 export function projectNativeSnapshot(snapshot: RadioNativeSnapshot): RadioLiveState {
   return {
+    authRevision: snapshot.authRevision || 0,
     phase: snapshot.phase,
     channelId: snapshot.channelId || null,
     transmissionId: snapshot.transmissionId || null,

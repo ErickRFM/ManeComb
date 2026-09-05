@@ -117,7 +117,8 @@ class ManeCombRadioService : Service() {
       token = intent.getStringExtra(EXTRA_TOKEN).orEmpty(),
       userId = intent.getStringExtra(EXTRA_USER_ID).orEmpty(),
       userName = intent.getStringExtra(EXTRA_USER_NAME).orEmpty(),
-      socketUrl = intent.getStringExtra(EXTRA_SOCKET_URL).orEmpty()
+      socketUrl = intent.getStringExtra(EXTRA_SOCKET_URL).orEmpty(),
+      authRevision = intent.getLongExtra("authRevision", 0)
     )
     val channelId = intent.getStringExtra(EXTRA_CHANNEL_ID).orEmpty()
     if (!credentials.isUsable || channelId.isBlank()) {
@@ -153,6 +154,8 @@ class ManeCombRadioService : Service() {
   fun notifyCallStarted() = controller.onCallStarted()
 
   fun notifyCallEnded() = controller.onCallEnded()
+
+  fun setSessionAuthState(unauthorized: Boolean) = controller.setSessionAuthState(unauthorized)
 
   fun deactivate() = handleDeactivate()
 
@@ -292,6 +295,7 @@ class ManeCombRadioService : Service() {
       putExtra(EXTRA_USER_ID, credentials.userId)
       putExtra(EXTRA_USER_NAME, credentials.userName)
       putExtra(EXTRA_SOCKET_URL, credentials.socketUrl)
+      putExtra("authRevision", credentials.authRevision)
       putExtra(EXTRA_CHANNEL_ID, channelId)
     }
 

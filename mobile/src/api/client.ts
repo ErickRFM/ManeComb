@@ -328,7 +328,8 @@ function isAuthRefreshCandidate(error: AxiosError) {
   );
 }
 
-async function refreshAccessToken() {
+// HTTP, shared realtime and native Radio use this same single-flight authority.
+export async function refreshAccessToken(appVersion?: string) {
   if (!sessionRecoveryConfig) {
     return null;
   }
@@ -345,7 +346,7 @@ async function refreshAccessToken() {
 
         const response = await apiClient.post<LoginResult>(
           '/auth/refresh',
-          attempt,
+          { ...attempt, appVersion },
           {
             _skipAuthRefresh: true,
             _allowRetry: true,

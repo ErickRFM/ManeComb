@@ -6,6 +6,7 @@ import {
   isTransientSessionFailure,
 } from './auth-session-failure-policy';
 import { logRealtimeDiag } from './realtime-diagnostics-log';
+import { parseRetryAfterSeconds } from '@/src/api/retry-after';
 import { create } from 'zustand';
 import { io, type Socket } from 'socket.io-client';
 import { isAxiosError } from 'axios';
@@ -63,7 +64,7 @@ import {
   openGeneralConversationRequest,
   putE2eeBackupRequest,
   registerRequest,
-  refreshSessionRequest,
+  refreshAccessToken,
   sendMessageRequest,
   sendMediaMessageRequest,
   sendVoiceMessageRequest,
@@ -185,6 +186,8 @@ let missedHeartbeatAcks = 0;
 let socketReconnectAttempts = 0;
 let socketAuthRetries = 0;
 let realtimeAuthRefreshInFlight: Promise<string | null> | null = null;
+let realtimeAuthRejectedToken: string | null = null;
+let realtimeAuthRetryAt = 0;
 let refreshAllInFlight: { epoch: number; promise: Promise<void> } | null = null;
 let foregroundRecoveryInFlight: Promise<void> | null = null;
 
@@ -261,6 +264,9 @@ export type AppState = {
   connectionMode: ConnectionMode;
   networkStatus: NetworkStatus;
   socketStatus: SocketStatus;
+  realtimeAuthState: 'ready' | 'recovering' | 'unauthorized';
+  recoverRealtimeAuth: (failedToken: string) => Promise<string | null>;
+  confirmRealtimeAuth: (acceptedToken: string) => void;
   realtimeDiagnostics: RealtimeDiagnostics;
   networkSnapshot: MobileNetworkSnapshot | null;
   pendingSyncCount: number;
@@ -435,6 +441,8 @@ async function clearTenantCache() {
 async function clearSessionState(set: StoreSet, error: string | null = null) {
   beginSessionEpoch();
   socketAuthRetries = 0;
+  realtimeAuthRetryAt = 0;
+  realtimeAuthRejectedToken = null;
   cleanupSessionRuntime();
   await hardResetBackgroundLocationServiceAsync().catch(() => undefined);
   setAuthToken(null);
@@ -444,6 +452,7 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
     ...getEmptyOperationalState(),
     token: null,
     refreshToken: null,
+    realtimeAuthState: 'ready',
     sessionPersistence: 'memory',
     authContext: null,
     user: null,
@@ -918,6 +927,10 @@ async function replaceSessionFromBackend(
   // lo desmonta en signOut/expiracion, y sin volver a montarlo un login sin
   // reiniciar la app dejaria al ConnectionBanner sin quien lo recupere: se
   // quedaria en "Servidor no disponible" hasta cerrar la app. Es idempotente.
+  socketAuthRetries = 0;
+  realtimeAuthRetryAt = 0;
+  realtimeAuthRejectedToken = null;
+  set({ realtimeAuthState: 'ready' });
   configureMobileRuntime(set, get);
   await hardResetBackgroundLocationServiceAsync().catch(() => undefined);
   await clearTenantCache();
@@ -1153,6 +1166,15 @@ function connectSocket(
     });
     return disconnectSocket();
   }
+  // Every producer (NetInfo, foreground, health probe and manual recovery) must
+  // respect the auth authority; none may resurrect rejected credentials.
+  if (get().realtimeAuthState === 'unauthorized') return;
+  if (get().realtimeAuthState === 'recovering') {
+    if (!realtimeAuthRefreshInFlight && Date.now() >= realtimeAuthRetryAt && token) {
+      void refreshRealtimeAuth(set, get, token);
+    }
+    return;
+  }
   const nextSessionKey = `${SOCKET_URL}:${user.id}:${token || 'anonymous'}`;
 
   logRealtimeDiag('connectSocket', {
@@ -1210,6 +1232,7 @@ function connectSocket(
   const socketUserId = user.id;
   const isSocketSessionCurrent = () => Boolean(
     socket === sessionSocket &&
+    get().realtimeAuthState === 'ready' &&
     socketSessionKey === nextSessionKey &&
     !isSessionEpochStale(socketEpoch) &&
     !get().isSigningOut &&
@@ -1300,7 +1323,8 @@ function connectSocket(
   sessionSocket.on('connect', () => {
     if (!isSocketSessionCurrent()) return;
     missedHeartbeatAcks = 0;
-    socketAuthRetries = 0;
+    // Android confirms the recovery only once BOTH transports have accepted it.
+    if (Platform.OS !== 'android') socketAuthRetries = 0;
     setSocketTransition(set, 'connected', 'socket_connected', {
       missedHeartbeatAcks: 0,
     });
@@ -1346,7 +1370,7 @@ function connectSocket(
   sessionSocket.on('connect_error', (error) => {
     if (!isSocketSessionCurrent()) return;
     logRealtimeDiag('connect_error', {
-      reason: error.message,
+      reason: isRealtimeAuthError(error.message) ? 'auth_rejected' : 'transport_unavailable',
       isRealtimeAuthError: isRealtimeAuthError(error.message),
       socketAuthRetries,
       socketStatus: get().socketStatus,
@@ -1357,21 +1381,7 @@ function connectSocket(
     });
 
     if (isRealtimeAuthError(error.message)) {
-      if (socketAuthRetries >= 1) {
-        setSocketTransition(set, 'unauthorized', 'socket_auth_retry_exhausted');
-        mobileLog('socket', 'connect_error after refreshed token', error.message);
-        return;
-      }
-
-      setSocketTransition(set, 'reconnecting', 'socket_auth_refresh_requested');
-      mobileLog('socket', 'connect_error requires token refresh', error.message);
-      void refreshRealtimeAuth(set, get).catch((refreshError) => {
-        if (!isSocketSessionCurrent()) return;
-        mobileLog('socket', 'unexpected realtime auth refresh failure', refreshError);
-        if (get().user) {
-          setSocketTransition(set, 'reconnecting', 'socket_auth_refresh_unexpected_failure');
-        }
-      });
+      void refreshRealtimeAuth(set, get, token || '');
       return;
     }
 
@@ -1382,9 +1392,9 @@ function connectSocket(
     setSocketTransition(
       set,
       sessionSocket.active ? 'reconnecting' : 'error',
-      `socket_connect_error:${error.message}`
+      'socket_connect_error:transport_unavailable'
     );
-    mobileLog('socket', 'connect_error', error.message);
+    mobileLog('socket', 'connect_error: transport unavailable');
   });
 
   const handleIncomingConversationMessage = async (
@@ -1784,7 +1794,7 @@ async function applyRefreshedSession(
   result: LoginResult
 ) {
   const refreshSession = captureSessionIdentity(get);
-  if (!isSessionIdentityCurrent(get, refreshSession)) return;
+  if (!isSessionIdentityCurrent(get, refreshSession) || get().realtimeAuthState === 'unauthorized') return;
 
   const nextRefreshToken = result.refreshToken || get().refreshToken;
   const authContext = getAuthContextFromPayload(result);
@@ -1799,44 +1809,51 @@ async function applyRefreshedSession(
   set({
     authContext,
     token: result.token,
+    realtimeAuthState: 'ready',
     refreshToken: nextRefreshToken || null,
     user: result.user || get().user,
   });
   connectSocket(set, get, { diagTrigger: 'applyRefreshedSession' });
 }
 
-function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string | null> {
-  if (realtimeAuthRefreshInFlight) {
+function terminateRealtimeAuth(set: StoreSet, reason: string) {
+  // Invalidate queued HTTP work and stop ALL reconnect producers, not just UI.
+  beginSessionEpoch();
+  cleanupSessionRuntime();
+  void hardResetBackgroundLocationServiceAsync().catch(() => undefined);
+  set({ realtimeAuthState: 'unauthorized' });
+  setSocketTransition(set, 'unauthorized', reason);
+  logRealtimeDiag('refreshRealtimeAuth:end', { outcome: 'terminal', code: reason });
+}
+
+function refreshRealtimeAuth(set: StoreSet, get: () => AppState, failedToken: string): Promise<string | null> {
+  if (!get().user || get().isSigningOut || get().realtimeAuthState === 'unauthorized' ||
+      !failedToken || failedToken !== get().token) return Promise.resolve(null);
+  if (realtimeAuthRefreshInFlight && failedToken === realtimeAuthRejectedToken) {
     return realtimeAuthRefreshInFlight;
   }
+  if (socketAuthRetries >= 1) {
+    terminateRealtimeAuth(set, 'socket_auth_retry_exhausted');
+    return Promise.resolve(null);
+  }
+  if (Date.now() < realtimeAuthRetryAt) return Promise.resolve(null);
 
   const epoch = getSessionEpoch();
-  realtimeAuthRefreshInFlight = (async () => {
-    const refreshToken = get().refreshToken || await getStoredItem(REFRESH_TOKEN_KEY);
-    const tokenBefore = get().token;
-    const userIdBefore = get().user?.id || null;
-
+  const tokenBefore = get().token;
+  realtimeAuthRejectedToken = failedToken;
+  socketAuthRetries += 1;
+  disconnectSocket();
+  set({ realtimeAuthState: 'recovering' });
+  setSocketTransition(set, 'reconnecting', 'socket_auth_refresh_requested');
+  // Defer until the single-flight handle is installed, including synchronous failures.
+  const recovery = Promise.resolve().then(async () => {
     logRealtimeDiag('refreshRealtimeAuth:start', {
       sessionEpoch: epoch,
-      hasRefreshToken: Boolean(refreshToken),
-      userId: userIdBefore,
-      socketStatus: get().socketStatus,
+      hasRefreshToken: Boolean(get().refreshToken),
       socketAuthRetries,
     });
-
-    if (!refreshToken) {
-      logRealtimeDiag('refreshRealtimeAuth:end', {
-        outcome: 'failure',
-        code: 'refresh_token_missing',
-        sessionEpochBefore: epoch,
-        sessionEpochAfter: getSessionEpoch(),
-      });
-      setSocketTransition(set, 'unauthorized', 'socket_auth_refresh_token_missing');
-      return null;
-    }
-
     try {
-      const result = await refreshSessionRequest(refreshToken, APP_VERSION);
+      const nextToken = await refreshAccessToken(APP_VERSION);
       if (isSessionEpochStale(epoch) || !get().user || get().isSigningOut) {
         logRealtimeDiag('refreshRealtimeAuth:end', {
           outcome: 'discarded',
@@ -1847,10 +1864,10 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
         return null;
       }
 
-      // One successful refresh is allowed per authentication-failure cycle. A
-      // second rejection of the refreshed token is terminal until re-login.
-      socketAuthRetries += 1;
-      await applyRefreshedSession(set, get, result);
+      if (!nextToken || nextToken === tokenBefore) {
+        terminateRealtimeAuth(set, 'socket_auth_refresh_no_new_credentials');
+        return null;
+      }
 
       // El valor del token nunca se registra: solo si cambio, que es lo que
       // decide si connectSocket vera una sessionKey distinta.
@@ -1859,12 +1876,10 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
         accessTokenChanged: get().token !== tokenBefore,
         sessionEpochBefore: epoch,
         sessionEpochAfter: getSessionEpoch(),
-        userIdBefore,
-        userIdAfter: get().user?.id || null,
         socketAuthRetries,
         socketStatus: get().socketStatus,
       });
-      return result.token;
+      return nextToken;
     } catch (error) {
       if (isSessionEpochStale(epoch) || !get().user || get().isSigningOut) {
         logRealtimeDiag('refreshRealtimeAuth:end', {
@@ -1877,10 +1892,7 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
       }
 
       const status = isAxiosError(error) ? error.response?.status : null;
-      const transientFailure =
-        isProbablyNetworkError(error) ||
-        status === 429 ||
-        (typeof status === 'number' && status >= 500);
+      const transientFailure = isTransientSessionFailure(error);
 
       logRealtimeDiag('refreshRealtimeAuth:end', {
         outcome: 'failure',
@@ -1892,19 +1904,22 @@ function refreshRealtimeAuth(set: StoreSet, get: () => AppState): Promise<string
         socketAuthRetries,
       });
 
-      setSocketTransition(
-        set,
-        transientFailure ? 'reconnecting' : 'unauthorized',
-        transientFailure
-          ? 'socket_auth_refresh_temporarily_unavailable'
-          : 'socket_auth_refresh_rejected'
-      );
+      if (transientFailure) {
+        socketAuthRetries = 0;
+        // Existing health/NetInfo/foreground producers may retry after cooldown;
+        // never reconnect with the rejected access token while refresh is pending.
+        const retryAfterSeconds = isAxiosError(error) ? parseRetryAfterSeconds(error.response) : null;
+        realtimeAuthRetryAt = Date.now() + Math.max(API_HEALTHCHECK_MS, (retryAfterSeconds || 0) * 1000);
+        setSocketTransition(set, 'reconnecting', 'socket_auth_refresh_temporarily_unavailable');
+      } else {
+        terminateRealtimeAuth(set, 'socket_auth_refresh_rejected');
+      }
       return null;
     } finally {
-      realtimeAuthRefreshInFlight = null;
+      if (realtimeAuthRefreshInFlight === recovery) realtimeAuthRefreshInFlight = null;
     }
-  })();
-
+  });
+  realtimeAuthRefreshInFlight = recovery;
   return realtimeAuthRefreshInFlight;
 }
 
@@ -2031,7 +2046,8 @@ function recoverMobileRuntimeAfterForeground(set: StoreSet, get: () => AppState)
 function configureMobileRuntime(set: StoreSet, get: () => AppState) {
   if (!recoveryConfigured) {
     configureApiSessionRecovery({
-      getRefreshToken: async () => get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
+      getRefreshToken: async () => get().realtimeAuthState === 'unauthorized'
+        ? null : get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
       onTokenRefresh: async (result) => {
         await applyRefreshedSession(set, get, result);
       },
@@ -2254,12 +2270,20 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  realtimeAuthState: 'ready',
+  recoverRealtimeAuth: (failedToken) => refreshRealtimeAuth(set, get, failedToken),
+  confirmRealtimeAuth: (acceptedToken) => {
+    if (acceptedToken === get().token && get().socketStatus === 'connected' && get().realtimeAuthState === 'ready') {
+      socketAuthRetries = 0;
+      realtimeAuthRetryAt = 0;
+    }
+  },
   apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null, operationalSocketReceivedAt: null, operationalAppliedAt: null, operationalReceiveToApplyMs: null, operationalUnitId: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
   authContext: null, user: null, mapData: null, operationalUnits: [], resources: idleMobileResources(), incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
-    if (!token || !refreshToken || get().isSigningOut || !get().user) return;
+    if (!token || !refreshToken || get().isSigningOut || !get().user || get().realtimeAuthState === 'unauthorized') return;
     const session = captureSessionIdentity(get);
     setAuthToken(token);
     if (get().sessionPersistence === 'persistent') {
@@ -2268,7 +2292,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       await persistSession(null, null);
     }
     if (!isSessionIdentityCurrent(get, session)) return;
-    set({ token, refreshToken });
+    set({ token, refreshToken, realtimeAuthState: 'ready' });
+    connectSocket(set, get, { diagTrigger: 'nativeCredentialRotation' });
   },
   activeConversationId: null, focusedIncidentId: null, typingByConversation: {}, readByConversation: {}, isLoadingConversation: false, isLoadingChatContacts: false, error: null,
   clearError: () => set({ error: null }),

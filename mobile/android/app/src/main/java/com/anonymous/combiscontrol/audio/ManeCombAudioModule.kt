@@ -152,6 +152,7 @@ class ManeCombAudioModule(
   // frecuencia e instantaneas. Ni un frame PCM cruza este bridge.
 
   private fun radioSnapshotMap(state: RadioSessionState) = Arguments.createMap().apply {
+    putDouble("authRevision", state.authRevision.toDouble())
     putString("phase", state.phase.name)
     putString("channelId", state.channelId)
     putString("transmissionId", state.transmissionId)
@@ -168,7 +169,8 @@ class ManeCombAudioModule(
       token = config.getStringOrEmpty("token"),
       userId = config.getStringOrEmpty("userId"),
       userName = config.getStringOrEmpty("userName"),
-      socketUrl = config.getStringOrEmpty("socketUrl")
+      socketUrl = config.getStringOrEmpty("socketUrl"),
+      authRevision = if (config.hasKey("authRevision")) config.getDouble("authRevision").toLong() else 0
     )
     val channelId = config.getStringOrEmpty("channelId")
 
@@ -245,6 +247,12 @@ class ManeCombAudioModule(
     val state = ManeCombRadioService.activeService?.currentSnapshot()
       ?: ManeCombRadioService.lastSnapshot
     promise.resolve(radioSnapshotMap(state))
+  }
+
+  @ReactMethod
+  fun setRadioSessionAuthState(unauthorized: Boolean, promise: Promise) {
+    ManeCombRadioService.activeService?.setSessionAuthState(unauthorized)
+    promise.resolve(null)
   }
 
   private fun ReadableMap.getStringOrEmpty(key: String): String =
