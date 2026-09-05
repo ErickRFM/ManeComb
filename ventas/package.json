@@ -8,7 +8,7 @@
     "build": "npm run verify:contracts && vite build && npm run verify:build-meta",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "verify:contracts": "npm run verify:mobile-layout && npm run verify:sales-ux && npm run verify:sales-actions && npm run verify:account-routing && npm run verify:portal-capabilities && npm run verify:session-storage && npm run verify:single-browser-account && npm run verify:route-plan-authority && npm run verify:portal-load-policy && npm run verify:plan-onboarding && npm run verify:activation-key-history && npm run verify:routes-empty-state && npm run verify:portal-realtime && npm run verify:portal-communication && npm run verify:operations-mobile-presentation && npm run verify:tracking-presentation && npm run verify:connection-hardening && node scripts/verify-operational-authority-behavior.mjs",
+    "verify:contracts": "npm run verify:mobile-layout && npm run verify:sales-ux && npm run verify:sales-actions && npm run verify:unit-archive-lifecycle && npm run verify:account-routing && npm run verify:portal-capabilities && npm run verify:session-storage && npm run verify:single-browser-account && npm run verify:route-plan-authority && npm run verify:portal-load-policy && npm run verify:plan-onboarding && npm run verify:activation-key-history && npm run verify:routes-empty-state && npm run verify:portal-realtime && npm run verify:portal-communication && npm run verify:operations-mobile-presentation && npm run verify:tracking-presentation && npm run verify:connection-hardening && node scripts/verify-operational-authority-behavior.mjs",
     "verify:operations-mobile-presentation": "node scripts/verify-operations-mobile-presentation.mjs",
     "verify:tracking-presentation": "node scripts/verify-tracking-presentation.mjs",
     "verify:connection-hardening": "node scripts/verify-connection-hardening.mjs",
@@ -17,6 +17,7 @@
     "verify:mobile-layout": "node scripts/verify-mobile-sales-layout.cjs",
     "verify:sales-ux": "node scripts/verify-sales-ux.cjs",
     "verify:sales-actions": "node scripts/verify-sales-actions.cjs",
+    "verify:unit-archive-lifecycle": "node scripts/verify-unit-archive-lifecycle.mjs",
     "verify:account-routing": "node scripts/verify-account-routing.cjs",
     "verify:portal-capabilities": "node scripts/verify-portal-capability-ui.cjs",
     "verify:session-storage": "node scripts/verify-session-storage.cjs",
@@ -46,7 +47,7 @@
   },
   "devDependencies": {
     "@types/mapbox-gl": "^3.4.1",
-    "@types/qrcode": "^1.5.6",
+    "@types/qrcode": "^1.8.0",
     "@types/react": "~19.1.0",
     "@types/react-dom": "~19.1.0",
     "typescript": "~5.9.2"
