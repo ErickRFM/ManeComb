@@ -13,6 +13,7 @@ import {
 } from './shared-realtime-socket';
 import { logRealtimeDiag } from './realtime-diagnostics-log';
 import { installApiSessionBoundary } from '@/src/api/api-session-boundary';
+import { useRadioLiveStore } from '@/src/features/radio-live/radio-live-store';
 import {
   clearSessionNotifications,
   deleteNativePushToken,
@@ -63,6 +64,13 @@ function ensureNativeSessionTeardownObserver() {
       !state.isBootstrapping &&
       !currentHasIdentity &&
       (!previousState.isHydrated || previousState.isBootstrapping);
+
+    // Radio outlives React. Stop it at the existing identity authority, before
+    // logout awaits HTTP or the authenticated overlay unmounts without cleanup.
+    const signOutJustStarted = state.isSigningOut && !previousState.isSigningOut;
+    if (signOutJustStarted || identityJustEnded || unauthenticatedBootstrapJustSettled) {
+      useRadioLiveStore.getState().reset();
+    }
 
     if (!identityJustEnded && !unauthenticatedBootstrapJustSettled) return;
 
