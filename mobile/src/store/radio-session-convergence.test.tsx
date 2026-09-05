@@ -144,6 +144,18 @@ it('valid token connects both transports without refreshing or changing native i
   expect(activations).toHaveLength(1);
 });
 
+it('a pending logout cannot reactivate Radio while its old user and token are still present', async () => {
+  await act(async () => { currentSocket().server('connect'); emitNative({ phase: 'LISTENING', connected: true }); });
+  await act(async () => { useAppStore.setState({ isSigningOut: true }); await settle(); });
+  expect(useRadioLiveStore.getState()._runtime).toBeNull();
+  await act(async () => {
+    useAppStore.setState({ token: 'test-stale-rotation', conversations: [...useAppStore.getState().conversations] });
+    foreground('active'); mockNetwork(mockOnline); await settle();
+  });
+  expect(activations).toHaveLength(1);
+  expect(useRadioLiveStore.getState()._runtime).toBeNull();
+});
+
 it('connect_error -> single refresh -> applyRefreshedSession -> overlay -> native activate with rotated token', async () => {
   const oldSocket = currentSocket();
   await act(async () => {

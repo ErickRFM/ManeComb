@@ -34,6 +34,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
     authContext,
     conversations,
     openGeneralConversation,
+    isSigningOut,
     realtimeAuthState,
     recoverRealtimeAuth,
     confirmRealtimeAuth,
@@ -46,6 +47,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
       authContext: state.authContext,
       conversations: state.conversations,
       openGeneralConversation: state.openGeneralConversation,
+      isSigningOut: state.isSigningOut,
       realtimeAuthState: state.realtimeAuthState,
       recoverRealtimeAuth: state.recoverRealtimeAuth,
       confirmRealtimeAuth: state.confirmRealtimeAuth,
@@ -58,7 +60,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
   const [ensureAttempt, setEnsureAttempt] = useState(0);
   const sessionOwnerRef = useRef<string | null>(null);
 
-  const eligible = Boolean(user && token && authContext?.canAccessMobile === true);
+  const eligible = Boolean(!isSigningOut && user && token && authContext?.canAccessMobile === true);
   const callOwnsAudio = ['CONNECTING', 'CONNECTED', 'RECONNECTING', 'ENDING'].includes(callPhase);
 
   // Un unico productor del canal activo: la seleccion operativa del store. Si el
@@ -121,7 +123,7 @@ export function RadioLiveOverlay(): React.ReactElement | null {
 
   useEffect(() => {
     if (!RADIO_LIVE_SUPPORTED || !eligible || !user || !token || !channelId || realtimeAuthState !== 'ready') return;
-    if (useAppStore.getState().token !== token || useAppStore.getState().realtimeAuthState !== 'ready') return;
+    if (useAppStore.getState().isSigningOut || useAppStore.getState().token !== token || useAppStore.getState().realtimeAuthState !== 'ready') return;
     logRealtimeDiag('radio:activate', { reason: 'session_credentials_applied' });
     activate({
       channelId,
