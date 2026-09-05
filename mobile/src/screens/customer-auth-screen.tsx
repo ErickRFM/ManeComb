@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
+import { AppTheme } from '@/constants/theme';
 import * as Haptics from '@/src/native/haptics';
 import {
   API_URL,
@@ -302,6 +303,8 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
       <KeyboardSafeScrollView
+          // The controller follows the caret; leave room for the whole field.
+          bottomOffset={!isRegister ? AppTheme.spacing.lg : undefined}
           keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={Platform.OS === 'web'}
