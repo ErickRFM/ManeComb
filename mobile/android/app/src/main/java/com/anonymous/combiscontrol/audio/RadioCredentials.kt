@@ -15,7 +15,8 @@ data class RadioSessionCredentials(
   val token: String,
   val userId: String,
   val userName: String,
-  val socketUrl: String
+  val socketUrl: String,
+  val authRevision: Long = 0
 ) {
   val isUsable: Boolean
     get() = token.isNotBlank() && userId.isNotBlank() && socketUrl.isNotBlank()

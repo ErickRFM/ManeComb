@@ -28,6 +28,7 @@ export type RadioNativePhase =
   | 'ERROR';
 
 export type RadioNativeSnapshot = {
+  authRevision?: number;
   phase: RadioNativePhase;
   channelId: string | null;
   transmissionId: string | null;
@@ -39,6 +40,7 @@ export type RadioNativeSnapshot = {
 };
 
 export type RadioActivationConfig = {
+  authRevision?: number;
   token: string;
   userId: string;
   userName: string;
@@ -122,6 +124,7 @@ type NativeAudioModule = {
   requestRadioTransmission: () => Promise<void>;
   endRadioTransmission: () => Promise<void>;
   setRadioCallActive: (active: boolean) => Promise<void>;
+  setRadioSessionAuthState: (unauthorized: boolean) => Promise<void>;
   getRadioSnapshot: () => Promise<RadioNativeSnapshot>;
   getRadioAudioRoute: () => Promise<RadioAudioRouteStatus>;
   setRadioAudioRoute: (route: RadioAudioRoute) => Promise<RadioAudioRouteStatus>;
@@ -195,6 +198,10 @@ export async function endRadioTransmission() {
 
 export async function setRadioCallActive(active: boolean) {
   await NativeAudio?.setRadioCallActive(active);
+}
+
+export async function setRadioSessionAuthState(state: 'recovering' | 'unauthorized') {
+  await NativeAudio?.setRadioSessionAuthState(state === 'unauthorized');
 }
 
 export async function getRadioSnapshot(): Promise<RadioNativeSnapshot> {

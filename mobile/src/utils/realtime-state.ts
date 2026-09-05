@@ -91,7 +91,7 @@ export function getRealtimeSnapshot({
   radioChannelReady = false,
   socketStatus = 'idle',
 }: RealtimeInputs): RealtimeSnapshot {
-  if (networkStatus === 'offline') {
+  if (networkStatus === 'offline' && socketStatus !== 'unauthorized' && socketStatus !== 'reconnecting') {
     return {
       canTransmit: false,
       detail: 'Esperando Internet',
@@ -124,7 +124,7 @@ export function getRealtimeSnapshot({
   if (socketStatus === 'reconnecting' || networkStatus === 'recovering') {
     return {
       canTransmit: false,
-      detail: 'Reconectando Socket',
+      detail: networkStatus === 'offline' ? 'Esperando Internet' : 'Reconectando Socket',
       label: 'Reconectando',
       state: 'RECONNECTING',
       tone: 'warning',

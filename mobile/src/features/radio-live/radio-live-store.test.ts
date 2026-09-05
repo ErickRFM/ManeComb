@@ -51,6 +51,7 @@ function createHarness(): Harness {
     async setCallActive(active) {
       harness.calls!.push(active);
     },
+    async setSessionAuthState() {},
     async deactivate() {
       harness.deactivations! += 1;
     },
@@ -69,7 +70,7 @@ function createHarness(): Harness {
 
   harness.runtime = runtime;
   harness.emit = (state) => {
-    const next = { ...initialRadioLiveState(), ...state };
+    const next = { ...initialRadioLiveState(), authRevision: useRadioLiveStore.getState()._activationRevision, ...state };
     listeners.forEach((listener) => listener(next));
   };
 
@@ -117,6 +118,19 @@ describe('radio live store projects the native session', () => {
     useRadioLiveStore.getState().activate({ ...session, userId: 'user-2', token: 'token-2' });
 
     expect(harness.activations).toHaveLength(2);
+  });
+
+  it('forwards a rotated token to the native runtime and ignores old credential snapshots', () => {
+    const harness = createHarness();
+    useRadioLiveStore.getState().activate(session);
+    const oldRevision = useRadioLiveStore.getState()._activationRevision;
+    harness.emit({ phase: 'RECONNECTING', lastErrorCode: 'radio_auth_refresh_required' });
+    useRadioLiveStore.getState().activate({ ...session, token: 'token-rotated' });
+    expect(harness.activations).toHaveLength(2);
+    expect(harness.activations[1]).toMatchObject({ token: 'token-rotated', channelId: session.channelId });
+    harness.emit({ phase: 'LISTENING', connected: true });
+    harness.emit({ phase: 'UNAUTHORIZED', authRevision: oldRevision });
+    expect(useRadioLiveStore.getState().phase).toBe('LISTENING');
   });
 
   it('never derives a phase of its own: it mirrors the native snapshot', () => {
@@ -209,6 +223,7 @@ describe('native snapshot projection', () => {
         transmissionStartedAt: 42,
       })
     ).toEqual({
+      authRevision: 0,
       phase: 'TRANSMITTING',
       channelId: 'radio-general',
       transmissionId: 'tx-1',

@@ -69,7 +69,7 @@ export function ConnectionBanner() {
 
   const label = offline
     ? realtime.detail
-    : pendingSyncCount > 0 && !transportRecovering
+    : !unauthorized && pendingSyncCount > 0 && !transportRecovering
       ? 'Sincronizando pendientes...'
       : realtime.state === 'RECONNECTING'
         ? 'Reconectando...'

@@ -125,13 +125,12 @@ describe('instrumentation does not change realtime behaviour', () => {
     expect(callStore).not.toContain("from '@/src/store/root-store'");
   });
 
-  it('preserves the auth failure policy untouched', () => {
-    // Los umbrales y transiciones que gobiernan el estado terminal siguen igual:
-    // esta tanda observa, no corrige.
+  it('keeps diagnostics separate from the bounded auth recovery authority', () => {
     expect(rootStore).toContain("if (socketAuthRetries >= 1) {");
-    expect(rootStore).toContain("setSocketTransition(set, 'unauthorized', 'socket_auth_retry_exhausted');");
-    expect(rootStore).toContain("setSocketTransition(set, 'unauthorized', 'socket_auth_refresh_token_missing');");
+    expect(rootStore).toContain("terminateRealtimeAuth(set, 'socket_auth_retry_exhausted');");
+    expect(rootStore).toContain("terminateRealtimeAuth(set, 'socket_auth_refresh_no_new_credentials');");
     expect(rootStore).toContain('socketAuthRetries += 1;');
+    expect(diagModule).not.toContain('terminateRealtimeAuth');
   });
 
   it('preserves the shared socket discovery policy untouched', () => {

@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "3786a7440f4804c665ab3ca6ea82008ce6f1fe96",
-    "capturedAt": "2026-08-30",
-    "phase": "post-communication-durability-main-review"
+    "commit": "b56e13e0eba0018ffe53f0f3145100666e2e5355",
+    "capturedAt": "2026-09-04",
+    "phase": "post-build22-radio-session-integration-review"
   },
   "products": [
     {
@@ -146,6 +146,9 @@
         "mobile/src/api/api-session-boundary.ts",
         "mobile/src/native/secure-store.ts",
         "mobile/src/store/root-store.ts",
+        "mobile/src/api/client.ts",
+        "mobile/src/features/radio-live/radio-live-overlay.tsx",
+        "mobile/android/app/src/main/java/com/anonymous/combiscontrol/audio/RadioSessionController.kt",
         "mobile/android/app/src/main/java/com/anonymous/combiscontrol/location/ManeCombLocationCredentials.kt",
         "backend/src/services/sessions.js",
         "backend/src/services/refresh-replay.js",

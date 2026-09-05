@@ -24,6 +24,7 @@ class RadioSessionControllerTest {
     var events: RadioTransportListener? = null
     var connectCount = 0
     var disconnectCount = 0
+    val credentialsUsed = mutableListOf<RadioSessionCredentials>()
     val joined = mutableListOf<String>()
     val left = mutableListOf<String>()
     val frames = mutableListOf<RadioOutboundFrame>()
@@ -32,7 +33,10 @@ class RadioSessionControllerTest {
     private var pendingJoin: ((RadioAck) -> Unit)? = null
     private var pendingFloor: ((RadioAck) -> Unit)? = null
 
-    override fun connect(credentials: RadioSessionCredentials) { connectCount += 1 }
+    override fun connect(credentials: RadioSessionCredentials) {
+      connectCount += 1
+      credentialsUsed += credentials
+    }
     override fun disconnect() { disconnectCount += 1 }
     override fun setListener(listener: RadioTransportListener?) { events = listener }
 
@@ -185,13 +189,13 @@ class RadioSessionControllerTest {
   }
 
   @Test
-  fun `join sin permisos deja sesion expirada y no reintenta`() {
+  fun `join sin permisos es error de canal y no sesion expirada`() {
     val harness = Harness()
     harness.controller.activate(credentials, "canal-1")
     harness.transport.events?.onConnected()
     harness.transport.completeJoin(RadioAck(ok = false, error = "forbidden"))
 
-    assertEquals(RadioPhase.UNAUTHORIZED, harness.phase())
+    assertEquals(RadioPhase.ERROR, harness.phase())
     assertFalse("no se reintenta un rechazo de permisos", harness.scheduler.hasPending())
   }
 
@@ -287,8 +291,63 @@ class RadioSessionControllerTest {
 
     harness.transport.events?.onDisconnected(RadioDisconnectReason.UNAUTHORIZED)
 
-    assertEquals(RadioPhase.UNAUTHORIZED, harness.phase())
+    assertEquals(RadioPhase.RECONNECTING, harness.phase())
+    assertEquals("radio_auth_refresh_required", harness.controller.snapshot().errorCode)
     assertFalse(harness.scheduler.hasPending())
+  }
+
+  @Test
+  fun `rotacion del token recupera el mismo canal sin conservar unauthorized`() {
+    val harness = listeningHarness()
+    harness.controller.setSessionAuthState(true)
+    assertEquals(RadioPhase.UNAUTHORIZED, harness.phase())
+    harness.controller.activate(credentials.copy(token = "token-2", authRevision = 2), "canal-1")
+    assertEquals(RadioPhase.JOINING, harness.phase())
+    assertFalse(harness.controller.snapshot().connected)
+    assertNull(harness.controller.snapshot().errorCode)
+    assertEquals("token-2", harness.transport.credentialsUsed.last().token)
+    assertEquals(2L, harness.controller.snapshot().authRevision)
+    harness.transport.events?.onConnected()
+    harness.transport.completeJoin(RadioAck(ok = true))
+    assertEquals(RadioPhase.LISTENING, harness.phase())
+    assertFalse(harness.audio.capturing)
+  }
+
+  @Test
+  fun `sesion terminal cancela timers bloquea callbacks y nunca reconecta credenciales rechazadas`() {
+    val harness = transmittingHarness()
+    harness.transport.events?.onDisconnected(RadioDisconnectReason.NETWORK)
+    assertTrue(harness.scheduler.hasPending())
+    harness.controller.setSessionAuthState(true)
+    val connects = harness.transport.connectCount
+    harness.scheduler.runPending()
+    harness.transport.events?.onDisconnected(RadioDisconnectReason.NETWORK)
+    harness.transport.events?.onConnected()
+    harness.controller.onCallStarted()
+    harness.controller.onCallEnded()
+    harness.controller.selectChannel("canal-2")
+    harness.controller.requestTransmission()
+    harness.transport.events?.onRemoteTransmissionStarted("stale-tx", remote)
+    harness.controller.setSessionAuthState(false)
+    assertEquals(RadioPhase.UNAUTHORIZED, harness.phase())
+    assertEquals(connects, harness.transport.connectCount)
+    assertFalse(harness.scheduler.hasPending())
+    assertFalse(harness.audio.capturing)
+    assertNull(harness.audio.playingTransmissionId)
+    assertFalse(harness.controller.snapshot().connected)
+  }
+
+  @Test
+  fun `refresh recuperable detiene transmision hasta recibir token nuevo`() {
+    val harness = transmittingHarness()
+    harness.controller.setSessionAuthState(false)
+    val connects = harness.transport.connectCount
+    harness.controller.activate(credentials, "canal-1")
+    harness.controller.requestTransmission()
+    assertEquals(RadioPhase.RECONNECTING, harness.phase())
+    assertFalse(harness.audio.capturing)
+    assertFalse(harness.scheduler.hasPending())
+    assertEquals(connects, harness.transport.connectCount)
   }
 
   @Test
@@ -458,7 +517,7 @@ class RadioSessionControllerTest {
     harness.transport.events?.onConnected()
     harness.transport.completeJoin(RadioAck(ok = false, error = "radio_ack_timeout"))
 
-    assertEquals(RadioPhase.ERROR, harness.phase())
+    assertEquals(RadioPhase.RECONNECTING, harness.phase())
     assertTrue(harness.scheduler.hasPending())
     assertEquals(400L, harness.scheduler.scheduledDelayMs)
   }

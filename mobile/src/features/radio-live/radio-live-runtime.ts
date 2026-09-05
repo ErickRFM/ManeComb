@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import {
   RADIO_NATIVE_AVAILABLE,
   activateRadio,
@@ -8,6 +8,7 @@ import {
   requestRadioTransmission,
   selectRadioChannel,
   setRadioCallActive,
+  setRadioSessionAuthState,
   subscribeToRadioState,
 } from '@/src/native/audio';
 import {
@@ -27,6 +28,7 @@ import {
 const nativeRadioLiveRuntime: RadioLiveRuntime = {
   async activate(input) {
     await activateRadio({
+      authRevision: input.authRevision,
       token: input.token,
       userId: input.userId,
       userName: input.userName,
@@ -58,11 +60,24 @@ const nativeRadioLiveRuntime: RadioLiveRuntime = {
   async setCallActive(active) {
     await setRadioCallActive(active);
   },
+  async setSessionAuthState(state) {
+    await setRadioSessionAuthState(state);
+  },
   async deactivate() {
     await deactivateRadio();
   },
   subscribe(listener) {
-    return subscribeToRadioState((snapshot) => listener(projectNativeSnapshot(snapshot)));
+    let active = true;
+    const unsubscribe = subscribeToRadioState((snapshot) => listener(projectNativeSnapshot(snapshot)));
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      // A native auth rejection may happen while JS is suspended. Reconcile the
+      // actual service snapshot, including its credential revision, on resume.
+      void getRadioSnapshot().then((snapshot) => {
+        if (active) listener(projectNativeSnapshot(snapshot));
+      }).catch(() => undefined);
+    });
+    return () => { active = false; unsubscribe(); subscription.remove(); };
   },
   async readSnapshot() {
     return projectNativeSnapshot(await getRadioSnapshot());
@@ -84,6 +99,7 @@ const unsupportedRadioLiveRuntime: RadioLiveRuntime = {
     return { ok: false, error: 'radio_unsupported_platform' };
   },
   async setCallActive() {},
+  async setSessionAuthState() {},
   async deactivate() {},
   subscribe() {
     return () => undefined;

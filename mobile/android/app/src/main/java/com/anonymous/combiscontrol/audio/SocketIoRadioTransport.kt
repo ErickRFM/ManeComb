@@ -55,17 +55,18 @@ class SocketIoRadioTransport : RadioTransport {
     }
 
     next.on(Socket.EVENT_CONNECT) {
+      if (socket !== next || manualDisconnect) return@on
       RadioLog.event("socket_connected")
       listener?.onConnected()
     }
     next.on(Socket.EVENT_DISCONNECT) { args ->
-      if (manualDisconnect) return@on
+      if (socket !== next || manualDisconnect) return@on
       val reason = disconnectReasonOf(args.firstOrNull()?.toString())
       RadioLog.event("socket_disconnected", "reason" to reason.name)
       listener?.onDisconnected(reason)
     }
     next.on(Socket.EVENT_CONNECT_ERROR) { args ->
-      if (manualDisconnect) return@on
+      if (socket !== next || manualDisconnect) return@on
       // El mensaje de error puede citar el motivo de auth; nunca el token.
       val reason = if (isUnauthorized(args.firstOrNull()?.toString().orEmpty())) {
         RadioDisconnectReason.UNAUTHORIZED
@@ -76,21 +77,25 @@ class SocketIoRadioTransport : RadioTransport {
       listener?.onDisconnected(reason)
     }
     next.on(EVENT_START) { args ->
+      if (socket !== next || manualDisconnect) return@on
       RadioProtocol.parseRemoteStart(args.firstOrNull())?.let { start ->
         listener?.onRemoteTransmissionStarted(start.transmissionId, start.operator)
       }
     }
     next.on(EVENT_FRAME) { args ->
+      if (socket !== next || manualDisconnect) return@on
       RadioProtocol.parseRemoteFrame(args.firstOrNull())?.let { frame ->
         listener?.onRemoteFrame(frame.transmissionId, frame.sequence, frame.data)
       }
     }
     next.on(EVENT_END) { args ->
+      if (socket !== next || manualDisconnect) return@on
       RadioProtocol.parseRemoteEnd(args.firstOrNull())?.let { end ->
         listener?.onRemoteTransmissionEnded(end.transmissionId, end.reason)
       }
     }
     next.on(EVENT_ERROR) { args ->
+      if (socket !== next || manualDisconnect) return@on
       val message = RadioProtocol.parseServerError(args.firstOrNull())
       RadioLog.warn("server_error")
       listener?.onServerError(message)
@@ -193,7 +198,8 @@ class SocketIoRadioTransport : RadioTransport {
 
   private fun isUnauthorized(message: String): Boolean {
     val value = message.lowercase()
-    return value.contains("unauthorized") || value.contains("invalid token") || value.contains("jwt")
+    return value.contains("unauthorized") || value.contains("invalid token") ||
+      value.contains("jwt") || value.contains("token expired") || value.contains("authentication failed")
   }
 
   companion object {

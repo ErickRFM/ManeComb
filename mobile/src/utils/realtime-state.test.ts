@@ -25,6 +25,18 @@ describe('realtime state machine', () => {
     expect(snapshot.detail).toBe('Sesión expirada. Vuelve a iniciar sesión.');
   });
 
+  it('keeps a terminal session authoritative even if network is offline or recovering', () => {
+    for (const networkStatus of ['offline', 'recovering'] as const) {
+      expect(getRealtimeSnapshot({ hasUser: true, socketStatus: 'unauthorized', networkStatus }).state).toBe('UNAUTHORIZED');
+    }
+  });
+
+  it('keeps an active transient recovery in RECONNECTING while waiting for Internet', () => {
+    expect(getRealtimeSnapshot({ hasUser: true, socketStatus: 'reconnecting', networkStatus: 'offline' })).toMatchObject({
+      state: 'RECONNECTING', detail: 'Esperando Internet', canTransmit: false,
+    });
+  });
+
   it('does not report reconnecting while receiving on a connected socket', () => {
     const snapshot = getRealtimeSnapshot({
       hasUser: true,

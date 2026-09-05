@@ -44,7 +44,7 @@ export function createStyles(
       gap: 8,
       marginTop: isPhone ? 10 : 8,
       paddingTop: 2,
-      paddingBottom: isPhone ? 2 : 0,
+      paddingBottom: AppTheme.spacing.sm,
     },
     pageIndicatorHit: {
       flex: 1,
@@ -62,6 +62,8 @@ export function createStyles(
       borderColor: theme.colors.line,
     },
     pageIndicatorText: {
+      flexShrink: 1,
+      minWidth: 0,
       color: theme.colors.muted,
       fontFamily: Typography.body,
       fontSize: 12,

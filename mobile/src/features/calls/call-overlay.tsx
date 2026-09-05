@@ -91,8 +91,14 @@ export function CallOverlay(): React.ReactElement {
   }, []);
 
   useEffect(() => {
+    if (useAppStore.getState().socketStatus === 'unauthorized') {
+      useCallStore.getState().reset();
+      bindSocket(null);
+      setPendingPushCall(null);
+      return;
+    }
     bindSocket(socket);
-  }, [bindSocket, socket]);
+  }, [bindSocket, socket, socketStatus]);
 
   useEffect(() => {
     if (!pendingPushCall || socketStatus !== 'connected' || !socket) return;

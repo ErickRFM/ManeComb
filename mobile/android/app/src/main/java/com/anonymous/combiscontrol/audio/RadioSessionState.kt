@@ -25,6 +25,7 @@ enum class RadioPhase {
 data class RadioOperator(val id: String, val name: String)
 
 data class RadioSessionState(
+  val authRevision: Long = 0,
   val phase: RadioPhase = RadioPhase.IDLE,
   val channelId: String? = null,
   /** Transmision en curso, propia (TRANSMITTING) o ajena (RECEIVING). */
@@ -43,6 +44,8 @@ data class RadioSessionState(
 }
 
 sealed class RadioEvent {
+  data class CredentialsChanged(val channelId: String, val authRevision: Long) : RadioEvent()
+  data class SessionAuthBlocked(val unauthorized: Boolean) : RadioEvent()
   data class Activate(val channelId: String) : RadioEvent()
   object Deactivate : RadioEvent()
   object TransportConnected : RadioEvent()
@@ -73,11 +76,25 @@ sealed class RadioEvent {
 object RadioSessionReducer {
 
   fun reduce(state: RadioSessionState, event: RadioEvent): RadioSessionState = when (event) {
+    is RadioEvent.CredentialsChanged -> RadioSessionState(
+      authRevision = event.authRevision,
+      channelId = event.channelId,
+      phase = if (state.phase == RadioPhase.PAUSED_BY_CALL) state.phase else RadioPhase.JOINING
+    )
+    is RadioEvent.SessionAuthBlocked -> state.copy(
+      phase = if (event.unauthorized) RadioPhase.UNAUTHORIZED else RadioPhase.RECONNECTING,
+      connected = false,
+      transmissionId = null,
+      operator = null,
+      transmissionStartedAt = null,
+      errorCode = if (event.unauthorized) "radio_unauthorized" else "radio_auth_refresh_required"
+    )
     is RadioEvent.Activate ->
       if (state.channelId == event.channelId && state.phase != RadioPhase.IDLE) {
         state
       } else {
         RadioSessionState(
+          authRevision = state.authRevision,
           phase = RadioPhase.JOINING,
           channelId = event.channelId,
           connected = state.connected
