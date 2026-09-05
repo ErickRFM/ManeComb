@@ -75,7 +75,7 @@ export function PortalUnitsScreen() {
     retired: vehicles.filter((item) => Boolean(item.retiredAt)).length,
   }), [vehicles]);
   const hasAssignedRoute = Boolean(lifecycleImpact?.vehicle.routeId || lifecycleImpact?.vehicle.assignedRoute);
-  const isArchivedTarget = Boolean(lifecycleImpact?.isArchived || deleteTarget?.retiredAt);
+  const isArchivedTarget = Boolean(deleteTarget?.retiredAt);
   const lifecycleConfirmDisabled = !lifecycleImpact || (
     !lifecycleImpact.canDeletePermanently &&
     (
@@ -290,7 +290,7 @@ export function PortalUnitsScreen() {
         }}
         onConfirm={async () => {
           if (!deleteTarget || !canManageUnits || lifecycleConfirmDisabled || !lifecycleImpact) return;
-          const deletingArchived = lifecycleImpact.isArchived;
+          const deletingArchived = Boolean(deleteTarget.retiredAt);
           const result = lifecycleImpact.canDeletePermanently
             ? await deleteVehicle(deleteTarget.id)
             : await retireVehicle(deleteTarget.id, retirementReason);
