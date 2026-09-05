@@ -24,6 +24,7 @@ export function AuthField({
   onSubmitEditing,
   placeholder,
   returnKeyType,
+  submitBehavior,
   secureTextEntry = false,
   textContentType,
   value,
@@ -39,6 +40,7 @@ export function AuthField({
   onSubmitEditing?: TextInputProps['onSubmitEditing'];
   placeholder: string;
   returnKeyType?: TextInputProps['returnKeyType'];
+  submitBehavior?: TextInputProps['submitBehavior'];
   secureTextEntry?: boolean;
   textContentType?: TextInputProps['textContentType'];
   value: string;
@@ -46,7 +48,7 @@ export function AuthField({
   const { theme } = useAppTheme();
   const [focused, setFocused] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const inputProps = getTextInputProps(theme, { autoComplete, returnKeyType, textContentType });
+  const inputProps = getTextInputProps(theme, { autoComplete, returnKeyType, submitBehavior, textContentType });
   const showPasswordToggle = secureTextEntry;
   const webInputStyle =
     Platform.OS === 'web'
