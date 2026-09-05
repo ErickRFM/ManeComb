@@ -25,6 +25,7 @@ import { BottomTrackingPanel } from './map/components/BottomTrackingPanel';
 import { FloatingControls } from './map/components/FloatingControls';
 import { MapCanvas } from './map/components/MapCanvas';
 import { MapDataRecovery } from './map/components/MapDataRecovery';
+import { MapSessionNotice } from './map/components/MapSessionNotice';
 import { SelectorRouteOverlay } from './map/components/SelectorRouteOverlay';
 import { TrackingHud } from './map/components/TrackingHud';
 import { useMapCamera } from './map/hooks/use-map-camera';
@@ -182,6 +183,15 @@ function MapEmptyGate({
 }
 
 export function MapScreen() {
+  return (
+    <View style={styles.safeArea}>
+      <MapScreenContent />
+      <MapSessionNotice />
+    </View>
+  );
+}
+
+function MapScreenContent() {
   const { theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<MapSelectorParams>();
