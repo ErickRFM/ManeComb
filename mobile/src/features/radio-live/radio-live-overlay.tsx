@@ -135,9 +135,15 @@ export function RadioLiveOverlay(): React.ReactElement | null {
   // Native Radio reports handshake rejection, never refreshes credentials itself.
   // The global authority parks BOTH transports while the shared HTTP single-flight runs.
   useEffect(() => {
-    if (!RADIO_LIVE_SUPPORTED || !eligible || !token) return;
+    if (!token) return;
     const currentAuth = useAppStore.getState();
     if (currentAuth.token !== token || currentAuth.realtimeAuthState !== realtimeAuthState) return;
+    if (!RADIO_LIVE_SUPPORTED || !eligible || !channelId) {
+      // An inactive/unsupported Radio is not an authentication voter. The
+      // existing shared socket remains authoritative for its own recovery.
+      if (realtimeAuthState === 'ready' && socketStatus === 'connected') confirmRealtimeAuth(token);
+      return;
+    }
     const nativeState = useRadioLiveStore.getState();
     if (realtimeAuthState !== 'ready') {
       setSessionAuthState(realtimeAuthState);
@@ -147,12 +153,16 @@ export function RadioLiveOverlay(): React.ReactElement | null {
       logRealtimeDiag('radio:auth_recovery_requested', { phase: nativeState.phase });
       void recoverRealtimeAuth(token);
     } else if (nativeConnected && nativeState.connected && socketStatus === 'connected' &&
-      ['LISTENING', 'RECEIVING', 'TRANSMITTING'].includes(nativeState.phase)) {
+      (['LISTENING', 'RECEIVING', 'TRANSMITTING', 'REQUESTING', 'CHANNEL_BUSY'].includes(nativeState.phase) ||
+        (callOwnsAudio && nativeState.phase === 'PAUSED_BY_CALL') ||
+        (nativeState.phase === 'ERROR' && nativeState.lastErrorCode === 'forbidden'))) {
       // Namespace connect is not a channel ACK. Resetting during JOINING would
       // allow an unauthorized join to start another refresh cycle forever.
+      // A call-owned pause intentionally skips join; a channel permission
+      // denial is not failed authentication. Neither may poison later expiry.
       confirmRealtimeAuth(token);
     }
-  }, [authRevision, confirmRealtimeAuth, eligible, lastErrorCode, nativeConnected, phase, realtimeAuthState, recoverRealtimeAuth, setSessionAuthState, socketStatus, token]);
+  }, [authRevision, callOwnsAudio, channelId, confirmRealtimeAuth, eligible, lastErrorCode, nativeConnected, phase, realtimeAuthState, recoverRealtimeAuth, setSessionAuthState, socketStatus, token]);
 
   // Llamadas y Radio no pueden poseer el microfono a la vez: la llamada gana.
   useEffect(() => {

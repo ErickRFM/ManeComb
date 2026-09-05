@@ -82,6 +82,8 @@ Revisión de consumidores RTC: se reprodujo con CallStore + runtime real (socket
 
 Regresiones de integración de llamadas: rotación del socket con medios activos, terminal sin captura/reconexión durante 180 s simulados, reemplazo ausente acotado, callback viejo del mismo callId y ACK tardío tras reset. Suite completa local: 121 suites / 677 tests, además del runner punto-a-punto; estas pruebas no acreditan TURN ni audio físico. Deben ejecutarse otra vez CI/Android/System Audit/Dependency Audit sobre el nuevo HEAD antes de merge.
 
+La matriz de segunda expiración detectó cinco falsos terminales adicionales: PAUSED_BY_CALL, CHANNEL_BUSY, REQUESTING, permiso de canal forbidden y Radio no soportada. Corregidos separando autenticación de disponibilidad/permiso/audio ownership: los estados que ya implican aceptación (o una pausa intencional confirmada por Calls) completan el ciclo; Radio inactiva/no soportada no veta la autoridad del socket global. JOINING aún no confirma, los snapshots viejos se descartan y el token renovado rechazado continúa terminal tras un solo refresh. Las cinco regresiones fallaron antes del ajuste y pasan después.
+
 ## Gate físico pendiente
 
 En la primera ejecución `adb devices` no encontró dispositivos. Al reanclar la integración apareció un Android modelo 2412DPC0AG. Todavía no se afirma reproducción ni PASS físico, ni se cierran #108, #89 o #29. El propietario autorizó instalar/probar debug después de los merges y antes de preparar build 23.

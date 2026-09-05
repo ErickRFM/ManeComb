@@ -9,6 +9,8 @@ import { setRadioLiveRuntimeFactory, useRadioLiveStore } from '@/src/features/ra
 import { initialRadioLiveState, type RadioLiveActivation, type RadioLiveRuntime, type RadioLiveState } from '@/src/features/radio-live/radio-live-types';
 
 let mockRecoveryConfig: any;
+let mockCallPhase = 'IDLE';
+let mockRadioSupported = true;
 let mockNetwork: (snapshot: any) => void;
 const mockUnsubscribe = jest.fn();
 const mockOnline = { isConnected: true, isInternetReachable: true, type: 'wifi', expensive: false };
@@ -35,8 +37,8 @@ jest.mock('@/src/api/client', () => ({
   refreshAccessToken: jest.fn(), setAuthToken: jest.fn(), healthRequest: jest.fn(async () => ({})),
   logoutRequest: jest.fn(async () => ({})),
 }));
-jest.mock('@/src/features/radio-live/radio-live-runtime', () => ({ RADIO_LIVE_SUPPORTED: true, createRadioLiveRuntime: jest.fn() }));
-jest.mock('@/src/features/calls/call-store', () => ({ useCallStore: (selector: any) => selector({ phase: 'IDLE' }) }));
+jest.mock('@/src/features/radio-live/radio-live-runtime', () => ({ get RADIO_LIVE_SUPPORTED() { return mockRadioSupported; }, createRadioLiveRuntime: jest.fn() }));
+jest.mock('@/src/features/calls/call-store', () => ({ useCallStore: (selector: any) => selector({ phase: mockCallPhase }) }));
 jest.mock('@/src/store/use-app-store', () => ({ useAppStore: jest.requireActual('./root-store').useAppStore }));
 jest.mock('socket.io-client', () => ({ io: jest.fn(() => mockSocket()) }));
 
@@ -79,6 +81,7 @@ const originalAppState = Object.getOwnPropertyDescriptor(NativeAppState, 'curren
 const settle = async () => { for (let index = 0; index < 20; index += 1) await Promise.resolve(); };
 
 beforeEach(async () => {
+  mockCallPhase = 'IDLE'; mockRadioSupported = true;
   jest.useFakeTimers();
   jest.spyOn(console, 'info').mockImplementation(() => {});
   jest.replaceProperty(Platform, 'OS', 'android');
@@ -209,6 +212,26 @@ it('does not loop when the refreshed token is rejected by Radio although the glo
   expect(useAppStore.getState().socketStatus).toBe('unauthorized');
   expect(useRadioLiveStore.getState().phase).toBe('UNAUTHORIZED');
 });
+
+it.each(['PAUSED_BY_CALL', 'CHANNEL_BUSY', 'REQUESTING', 'ERROR', 'UNSUPPORTED'])(
+  'accepted auth while Radio is %s permits a later independent expiry without false terminal', async phase => {
+    await act(async () => { currentSocket().server('connect_error', new Error('unauthorized')); await settle(); });
+    await act(async () => {
+      if (phase === 'PAUSED_BY_CALL') mockCallPhase = 'CONNECTED';
+      if (phase === 'UNSUPPORTED') mockRadioSupported = false;
+      currentSocket().server('connect');
+      emitNative({ phase: phase === 'UNSUPPORTED' ? 'IDLE' : phase as RadioLiveState['phase'], connected: true, lastErrorCode: phase === 'ERROR' ? 'forbidden' : null });
+      await settle();
+    });
+    (refreshAccessToken as jest.Mock).mockImplementationOnce(async () => {
+      await mockRecoveryConfig.onTokenRefresh({ ...refreshed, token: 'test-next-expiry', refreshToken: 'test-next-expiry-refresh' });
+      return 'test-next-expiry';
+    });
+    await act(async () => { currentSocket().server('connect_error', new Error('unauthorized')); await settle(); });
+    expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+    expect(useAppStore.getState().realtimeAuthState).toBe('ready');
+  }
+);
 
 it.each(['temporary Internet loss', 'Wi-Fi to mobile data', 'backend/socket unavailable'])(
   '%s stays transient without expiring the session', async (scenario) => {
