@@ -35,6 +35,12 @@ jest.mock('@/src/store/use-app-store', () => {
   return { useAppStore: makeStore(() => ({ token: 'test-old', networkStatus: 'online' })) };
 });
 
+// RN exports lazy getters. Bootstrap the real Jest native primitives while the
+// suite loads, not inside the first auth test's unchanged 5s assertion budget.
+// Cold Windows: first render ~4.2s before bootstrap, ~14ms after; no mock swap.
+for (const name of ['ActivityIndicator', 'Image', 'Modal', 'Pressable', 'Text', 'View']) {
+  void jest.requireActual('react-native')[name];
+}
 let tree: ReactTestRenderer | undefined;
 let requests: Array<{ url: string | undefined; authorization: unknown; range: unknown }>;
 const originalAdapter = apiClient.defaults.adapter;
