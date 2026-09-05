@@ -18,6 +18,24 @@ function canUseStorage() {
   return typeof window !== 'undefined' && Boolean(window.localStorage);
 }
 
+function isDirectAuthRouteWithoutCheckoutIntent() {
+  if (typeof window === 'undefined') return false;
+
+  const pathname = String(window.location?.pathname || '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+  const isDirectAuthRoute =
+    pathname === '/ventas/login' ||
+    pathname === '/ventas/registro' ||
+    pathname === '/login' ||
+    pathname === '/registro';
+
+  if (!isDirectAuthRoute) return false;
+
+  const routePlanId = new URLSearchParams(String(window.location?.search || '')).get('planId');
+  return !String(routePlanId || '').trim();
+}
+
 export function isTrialPlanId(planId: string | null | undefined) {
   return String(planId || '').trim().toLowerCase() === TRIAL_PLAN_ID;
 }
@@ -51,7 +69,9 @@ export function saveCheckoutContext(planId: string, requestTrial = false) {
 }
 
 export function readCheckoutContext(): CheckoutContext | null {
-  if (!canUseStorage()) return null;
+  // Login/registro sin plan en la URL es acceso normal, no continuación de compra.
+  // Un contexto viejo en localStorage no debe inventar una selección que el usuario no hizo.
+  if (!canUseStorage() || isDirectAuthRouteWithoutCheckoutIntent()) return null;
 
   try {
     const parsed = JSON.parse(window.localStorage.getItem(CHECKOUT_CONTEXT_KEY) || 'null') as CheckoutContext | null;
