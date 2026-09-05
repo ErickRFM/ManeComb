@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "b56e13e0eba0018ffe53f0f3145100666e2e5355",
-    "capturedAt": "2026-09-04",
-    "phase": "post-build22-radio-session-integration-review"
+    "commit": "14cbb739e8554b7a1bca9a04cbf5cd0bf0a17b88",
+    "capturedAt": "2026-09-05",
+    "phase": "post-unit-archive-and-session-convergence-review"
   },
   "products": [
     {
