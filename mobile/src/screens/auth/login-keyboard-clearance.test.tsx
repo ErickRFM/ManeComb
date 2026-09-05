@@ -6,6 +6,7 @@ import { AppTheme } from '@/constants/theme';
 import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { CustomerAuthScreen } from '../customer-auth-screen';
 import { ensureLoginBackendReady } from './login-readiness';
+import { AuthField } from './components/auth-field';
 
 const mockSignIn = jest.fn();
 jest.mock('@/src/store/use-app-store', () => ({ useAppStore: (select: any) => select({
@@ -58,4 +59,25 @@ it('retains Next/password semantics and focus does not submit credentials or rea
   expect(ensureLoginBackendReady).not.toHaveBeenCalled();
   expect(fields[0].props.value).toBe('');
   expect(fields[1].props.value).toBe('');
+});
+
+it('keeps the IME open when login Next transfers focus to password without submitting login', () => {
+  act(() => { tree = create(<CustomerAuthScreen mode="login" />); });
+  const fields = tree.root.findAllByType(TextInput);
+  const passwordField = tree.root.findAllByType(AuthField)[1];
+  const focus = jest.fn();
+  passwordField.props.inputRef.current = { focus };
+  expect(fields[0].props.submitBehavior).toBe('submit');
+  expect(fields[1].props.submitBehavior).toBeUndefined();
+  act(() => fields[0].props.onSubmitEditing());
+  expect(focus).toHaveBeenCalledTimes(1);
+  expect(mockSignIn).not.toHaveBeenCalled();
+  expect(ensureLoginBackendReady).not.toHaveBeenCalled();
+});
+
+it('does not change registration submit behavior or password security', () => {
+  act(() => { tree = create(<CustomerAuthScreen mode="register" />); });
+  const fields = tree.root.findAllByType(TextInput);
+  expect(fields.every(field => field.props.submitBehavior === undefined)).toBe(true);
+  expect(fields.filter(field => field.props.secureTextEntry === true)).toHaveLength(2);
 });

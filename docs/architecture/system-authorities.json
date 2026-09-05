@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "ae100dc42c1007d597a23a6fbc530107eb2e2710",
+    "commit": "7a8c015756204f8b9e322fbedec777fbdd0e3806",
     "capturedAt": "2026-09-05",
-    "phase": "post-267-login-health-and-radio-teardown-review"
+    "phase": "post-269-radio-teardown-and-login-keyboard-review"
   },
   "products": [
     {

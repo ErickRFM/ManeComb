@@ -374,6 +374,7 @@ export function CustomerAuthScreen({ mode }: CustomerAuthScreenProps) {
                   autoCapitalize="none"
                   autoComplete="email"
                   returnKeyType="next"
+                  submitBehavior={!isRegister ? 'submit' : undefined}
                   textContentType="username"
                   inputRef={identityInputRef}
                   onSubmitEditing={() => passwordInputRef.current?.focus()}
