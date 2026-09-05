@@ -32,7 +32,10 @@ export function KeyboardSafeView({
   );
 }
 
-export const KeyboardSafeScrollView = forwardRef<KeyboardAwareScrollViewRef, ScrollViewProps>(
+type KeyboardSafeScrollViewProps = ScrollViewProps &
+  Pick<ComponentProps<typeof KeyboardAwareScrollView>, 'bottomOffset'>;
+
+export const KeyboardSafeScrollView = forwardRef<KeyboardAwareScrollViewRef, KeyboardSafeScrollViewProps>(
   function KeyboardSafeScrollViewComponent(
     {
       children,
