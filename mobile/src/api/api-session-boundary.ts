@@ -60,6 +60,10 @@ function isPublicAuthRequest(config: InternalAxiosRequestConfig | undefined) {
 
   if (isNewSessionRequest(config)) return true;
 
+  // Interactive login first probes this public endpoint after clearing auth.
+  // Health is exempt from teardown, but is NOT a new-session/resume response.
+  if (method === 'get' && path === '/health') return true;
+
   return (
     method === 'post' &&
     (
