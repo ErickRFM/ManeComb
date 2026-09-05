@@ -75,6 +75,7 @@ export function PortalUnitsScreen() {
     retired: vehicles.filter((item) => Boolean(item.retiredAt)).length,
   }), [vehicles]);
   const hasAssignedRoute = Boolean(lifecycleImpact?.vehicle.routeId || lifecycleImpact?.vehicle.assignedRoute);
+  const isArchivedTarget = Boolean(deleteTarget?.retiredAt);
   const lifecycleConfirmDisabled = !lifecycleImpact || (
     !lifecycleImpact.canDeletePermanently &&
     (
@@ -162,7 +163,13 @@ export function PortalUnitsScreen() {
     const result = editingId ? await updateVehicle(editingId, payload) : await createVehicle(payload);
 
     if (!result.ok) {
-      setMessage(result.message || 'No fue posible guardar la unidad.');
+      const failureMessage = result.message || 'No fue posible guardar la unidad.';
+      if (!editingId && failureMessage.includes('unidad retirada') && failureMessage.includes('Mostrar retiradas')) {
+        setShowRetired(true);
+        setStatusFilter('all');
+        await loadVehicles({ includeRetired: true });
+      }
+      setMessage(failureMessage);
       return;
     }
 
@@ -238,12 +245,13 @@ export function PortalUnitsScreen() {
             onPress={() => {
               const next = !showRetired;
               setShowRetired(next);
+              setStatusFilter('all');
               if (next) void loadVehicles({ includeRetired: true });
-              else setStatusFilter('all');
+              else void loadVehicles();
             }}
             size="sm"
             variant={showRetired ? 'primary' : 'secondary'}>
-            Mostrar retiradas
+            {showRetired ? 'Ocultar retiradas' : 'Mostrar retiradas'}
           </PortalButton>
         </View>
       </PortalSectionCard>
@@ -260,11 +268,19 @@ export function PortalUnitsScreen() {
       <ConfirmModal
         visible={Boolean(canManageUnits && deleteTarget)}
         destructive
-        title={`Preparar unidad ${deleteTarget?.code || ''} para retiro`}
-        description={lifecycleImpact?.mustRetire
-          ? 'Esta unidad conserva historial y se retirara sin borrar su evidencia.'
-          : 'Revisa las dependencias antes de eliminar o retirar la unidad.'}
-        confirmLabel={lifecycleImpact?.canDeletePermanently ? 'Eliminar sin historial' : 'Retirar unidad'}
+        title={isArchivedTarget
+          ? `Eliminar ficha archivada ${deleteTarget?.code || ''}`
+          : `Preparar unidad ${deleteTarget?.code || ''} para retiro`}
+        description={isArchivedTarget
+          ? 'Se eliminara solo la ficha archivada. El historial, documentos e incidencias permaneceran disponibles.'
+          : lifecycleImpact?.mustRetire
+            ? 'Esta unidad conserva historial y se retirara sin borrar su evidencia.'
+            : 'Revisa las dependencias antes de eliminar o retirar la unidad.'}
+        confirmLabel={isArchivedTarget
+          ? 'Eliminar ficha archivada'
+          : lifecycleImpact?.canDeletePermanently
+            ? 'Eliminar unidad'
+            : 'Retirar unidad'}
         confirmDisabled={lifecycleConfirmDisabled}
         processing={isSubmitting}
         onCancel={() => {
@@ -274,13 +290,21 @@ export function PortalUnitsScreen() {
         }}
         onConfirm={async () => {
           if (!deleteTarget || !canManageUnits || lifecycleConfirmDisabled || !lifecycleImpact) return;
+          const deletingArchived = Boolean(deleteTarget.retiredAt);
           const result = lifecycleImpact.canDeletePermanently
             ? await deleteVehicle(deleteTarget.id)
             : await retireVehicle(deleteTarget.id, retirementReason);
           setMessage(result.ok
-            ? lifecycleImpact.canDeletePermanently ? 'Unidad eliminada sin historial.' : 'Unidad retirada; su historial permanece disponible.'
+            ? deletingArchived
+              ? 'Ficha archivada eliminada. El historial permanece disponible; ya puedes reutilizar el nombre y las placas.'
+              : lifecycleImpact.canDeletePermanently
+                ? 'Unidad eliminada.'
+                : 'Unidad retirada; su historial permanece disponible.'
             : result.message || 'No fue posible completar el retiro.');
-          if (result.ok) setDeleteTarget(null);
+          if (result.ok) {
+            setDeleteTarget(null);
+            setLifecycleImpact(null);
+          }
         }}>
         {lifecycleImpact ? <View style={styles.checklist}>
           <Text style={[styles.unitMeta, { color: lifecycleImpact.activeRouteSession ? palette.danger : palette.success }]}>

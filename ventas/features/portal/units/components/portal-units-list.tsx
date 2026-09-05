@@ -114,19 +114,23 @@ export function PortalUnitsList({
                     </>
                   }
                   meta={<StatusBadge label={status.label} tone={status.tone} />}
-                  actions={canManageUnits && !retired ? (
+                  actions={canManageUnits ? (
                     <View style={styles.rowActions}>
+                      {!retired ? (
+                        <PortalButton
+                          accessibilityLabel={`Editar unidad ${vehicle.code}`}
+                          onPress={() => onEdit(vehicle)}
+                          icon="pencil-outline"
+                          size="sm"
+                          variant="icon"
+                        />
+                      ) : null}
                       <PortalButton
-                        accessibilityLabel={`Editar unidad ${vehicle.code}`}
-                        onPress={() => onEdit(vehicle)}
-                        icon="pencil-outline"
-                        size="sm"
-                        variant="icon"
-                      />
-                      <PortalButton
-                        accessibilityLabel={`Revisar retiro o eliminación de unidad ${vehicle.code}`}
+                        accessibilityLabel={retired
+                          ? `Eliminar ficha archivada de unidad ${vehicle.code}`
+                          : `Revisar retiro o eliminación de unidad ${vehicle.code}`}
                         onPress={() => onDelete(vehicle)}
-                        icon="archive-arrow-down-outline"
+                        icon={retired ? 'delete-outline' : 'archive-arrow-down-outline'}
                         size="sm"
                         variant="danger"
                       />
