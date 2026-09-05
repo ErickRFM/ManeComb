@@ -120,6 +120,9 @@ interface CallStore extends CallState {
 }
 
 export const useCallStore = create<CallStore>()((set, get) => {
+  let runtimeGeneration = 0;
+  let lifecycleRevision = 0;
+  let runtimeRecovery: { callId: string; isMuted: boolean; isCameraEnabled: boolean } | null = null;
   const dispatch = (event: CallEvent): void => set((state) => reduce(state, event));
 
   const clearResetTimer = (): void => {
@@ -167,6 +170,8 @@ export const useCallStore = create<CallStore>()((set, get) => {
   };
 
   const stopRuntime = (): void => {
+    runtimeGeneration += 1;
+    runtimeRecovery = null;
     const runtime = get()._runtime;
     if (runtime) runtime.stop();
     clearConnectTimeout();
@@ -255,13 +260,18 @@ export const useCallStore = create<CallStore>()((set, get) => {
   const startRuntime = (): void => {
     const state = get();
     if (
-      state.phase !== 'CONNECTING' ||
+      (state.phase !== 'CONNECTING' && state.phase !== 'RECONNECTING') ||
       !state._socket ||
       !state.callId ||
       state._runtime
     ) return;
 
     const activeCallId = state.callId;
+    const recovery = runtimeRecovery?.callId === activeCallId ? runtimeRecovery : null;
+    runtimeRecovery = null;
+    clearConnectTimeout();
+    const generation = ++runtimeGeneration;
+    const isCurrent = () => generation === runtimeGeneration && get().callId === activeCallId;
     if (!runtimeFactory) {
       onRuntimeFailed(activeCallId, 'runtime_unavailable');
       return;
@@ -273,26 +283,30 @@ export const useCallStore = create<CallStore>()((set, get) => {
       mode: state.mode || 'audio',
       socket: state._socket,
       onLocalStream: (stream) => {
-        if (get().callId === activeCallId) set({ localStream: stream });
+        if (isCurrent()) set({ localStream: stream });
       },
       onRemoteStream: (stream) => {
-        if (get().callId === activeCallId) set({ remoteStream: stream });
+        if (isCurrent()) set({ remoteStream: stream });
       },
-      onConnected: () => onRuntimeConnected(activeCallId),
-      onReconnecting: () => onRuntimeReconnecting(activeCallId),
-      onReconnected: () => onRuntimeConnected(activeCallId),
-      onFailed: (code) => onRuntimeFailed(activeCallId, code),
+      onConnected: () => { if (isCurrent()) onRuntimeConnected(activeCallId); },
+      onReconnecting: () => { if (isCurrent()) onRuntimeReconnecting(activeCallId); },
+      onReconnected: () => { if (isCurrent()) onRuntimeConnected(activeCallId); },
+      onFailed: (code) => { if (isCurrent()) onRuntimeFailed(activeCallId, code); },
     });
+    if (recovery) {
+      runtime.setMicEnabled(!recovery.isMuted);
+      runtime.setCameraEnabled(recovery.isCameraEnabled);
+    }
     const timeout = setTimeout(
-      () => onRuntimeFailed(activeCallId, 'ice_timeout'),
+      () => { if (isCurrent()) onRuntimeFailed(activeCallId, 'ice_timeout'); },
       CONNECT_TIMEOUT_MS
     );
     set({
       _runtime: runtime,
       _connectTimeout: timeout,
-      isMuted: false,
-      isCameraEnabled: true,
-      elapsedSeconds: 0,
+      isMuted: recovery?.isMuted ?? false,
+      isCameraEnabled: recovery?.isCameraEnabled ?? true,
+      elapsedSeconds: recovery ? state.elapsedSeconds : 0,
     });
   };
 
@@ -309,8 +323,9 @@ export const useCallStore = create<CallStore>()((set, get) => {
   };
 
   const ensureMediaPermissions = async (intent: CallPermissionIntent): Promise<boolean> => {
+    const revision = lifecycleRevision;
     const permissions = await callPermissionRequester(intent.mode);
-    if (!isPermissionIntentCurrent(intent)) return false;
+    if (revision !== lifecycleRevision || !isPermissionIntentCurrent(intent)) return false;
 
     const failureCode = getCallPermissionFailure(permissions, intent.mode);
 
@@ -360,6 +375,20 @@ export const useCallStore = create<CallStore>()((set, get) => {
         bound: Boolean(socket),
         phase: get().phase,
       });
+      const state = get();
+      if (state._runtime && state.callId) {
+        const recovery = { callId: state.callId, isMuted: state.isMuted, isCameraEnabled: state.isCameraEnabled };
+        if (state.phase === 'CONNECTED') dispatch({ type: 'RECONNECTING' });
+        // Retire the old producer before starting the existing runtime factory
+        // on the replacement socket. Backend rtc:join still authorizes the call.
+        stopRuntime();
+        runtimeRecovery = recovery;
+        set({ isMuted: recovery.isMuted, isCameraEnabled: recovery.isCameraEnabled });
+        const timeout = setTimeout(() => {
+          if (runtimeRecovery === recovery) onRuntimeFailed(recovery.callId, 'reconnect_timeout');
+        }, CONNECT_TIMEOUT_MS);
+        set({ _connectTimeout: timeout });
+      }
       get().unbindSocket();
       if (!socket) return;
       const unbind = bindCallSocket(socket, {
@@ -371,6 +400,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
         onEnd: (payload) => get().handleRemoteEnd(payload),
       });
       set({ _socket: socket, _unbind: unbind });
+      if (runtimeRecovery) startRuntime();
     },
 
     unbindSocket: () => {
@@ -380,6 +410,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
     },
 
     reset: () => {
+      lifecycleRevision += 1;
       clearResetTimer();
       clearRingTimeout();
       stopRuntime();
@@ -441,6 +472,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
     },
 
     startCall: async ({ conversationId, mode }) => {
+      const revision = lifecycleRevision;
       const state = get();
       if (!isIdle(state) || state._starting) return { ok: false, code: 'busy_local' };
       if (state.permissionPrompt) return { ok: false, code: 'media_permission_required' };
@@ -464,6 +496,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
         if (!socket) return { ok: false, code: 'no_socket' };
 
         const ack = await emitStartCall(socket, { conversationId, mode });
+        if (revision !== lifecycleRevision) return { ok: false, code: 'session_changed' };
         if (!isIdle(get())) return { ok: false, code: 'busy_local' };
         if (!ack?.ok || !ack.callId) {
           return { ok: false, code: ack?.code || ack?.reason || 'call_failed' };
@@ -479,11 +512,12 @@ export const useCallStore = create<CallStore>()((set, get) => {
         scheduleRingTimeout(ack.callId, ack.expiresAt, ack.ringTimeoutMs);
         return { ok: true };
       } finally {
-        set({ _starting: false });
+        if (revision === lifecycleRevision) set({ _starting: false });
       }
     },
 
     acceptIncomingCall: async () => {
+      const revision = lifecycleRevision;
       const state = get();
       if (state.phase !== 'INCOMING_RINGING' || !state.callId) return;
       if (state._accepting || state.permissionPrompt) return;
@@ -515,6 +549,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
         dispatch({ type: 'LOCAL_ACCEPT', now: now() });
 
         const ack = await emitAccept(currentBeforeAccept._socket, activeCallId);
+        if (revision !== lifecycleRevision) return;
         const current = get();
         if (current.callId !== activeCallId || current.phase !== 'CONNECTING') return;
         if (!ack.ok) {
@@ -534,7 +569,7 @@ export const useCallStore = create<CallStore>()((set, get) => {
         }
         startRuntime();
       } finally {
-        set({ _accepting: false });
+        if (revision === lifecycleRevision) set({ _accepting: false });
       }
     },
 

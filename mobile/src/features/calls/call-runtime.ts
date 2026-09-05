@@ -129,6 +129,8 @@ export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
   let joined = false;
   let peer: any = null;
   let media: LocalMedia | null = null;
+  let micEnabled = true;
+  let cameraEnabled = true;
   let remoteStream: any = null;
   let participantCount = 0;
   let initialConnected = false;
@@ -408,6 +410,10 @@ export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
       return;
     }
     media = localMedia;
+    // Recovery can restore controls before async capture completes. Never
+    // briefly publish an enabled track that the operator had muted/disabled.
+    setMicEnabled(media, micEnabled);
+    setLocalCameraEnabled(media, cameraEnabled);
     onLocalStream(media.stream);
 
     try {
@@ -459,9 +465,11 @@ export const createNativeCallRuntime: CallRuntimeFactory = (params) => {
       cleanup();
     },
     setMicEnabled(enabled: boolean): void {
+      micEnabled = enabled;
       setMicEnabled(media, enabled);
     },
     setCameraEnabled(enabled: boolean): void {
+      cameraEnabled = enabled;
       setLocalCameraEnabled(media, enabled);
     },
   };

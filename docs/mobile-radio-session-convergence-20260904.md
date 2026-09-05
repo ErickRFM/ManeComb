@@ -78,6 +78,10 @@ El APK debug local es `mobile/android/app/build/outputs/apk/debug/app-debug.apk`
 
 Revisión posterior al commit inicial: typecheck y lint PASS; suite completa 120 suites / 672 tests PASS tras añadir 401 tardío sin doble refresh y dos casos de epoch anterior (401 y ACCOUNT_SUSPENDED). El segundo commit exige nuevas corridas remotas; no se reutilizan checks del HEAD anterior para merge.
 
+Revisión de consumidores RTC: se reprodujo con CallStore + runtime real (socket/peer/media inyectados) que sustituir el socket dejaba el productor RTC asociado al anterior y que el terminal global no desmontaba CallOverlay porque conservaba el usuario. CallOverlay ahora aplica reset ante la autoridad global UNAUTHORIZED; CallStore retira el runtime anterior antes de reconstruirlo mediante su factory existente y el mismo rtc:join autorizado por backend. Se conserva connectedAt/mute/cámara, se espera media real antes de CONNECTED y se descartan callbacks de una generación retirada y ACKs/permisos anteriores a reset. Si no aparece socket nuevo, el timeout existente termina la recuperación. No se añaden propietarios, refresh ni protocolo/backend nuevos.
+
+Regresiones de integración de llamadas: rotación del socket con medios activos, terminal sin captura/reconexión durante 180 s simulados, reemplazo ausente acotado, callback viejo del mismo callId y ACK tardío tras reset. Suite completa local: 121 suites / 677 tests, además del runner punto-a-punto; estas pruebas no acreditan TURN ni audio físico. Deben ejecutarse otra vez CI/Android/System Audit/Dependency Audit sobre el nuevo HEAD antes de merge.
+
 ## Gate físico pendiente
 
 En la primera ejecución `adb devices` no encontró dispositivos. Al reanclar la integración apareció un Android modelo 2412DPC0AG. Todavía no se afirma reproducción ni PASS físico, ni se cierran #108, #89 o #29. El propietario autorizó instalar/probar debug después de los merges y antes de preparar build 23.
@@ -91,6 +95,9 @@ mobile/src/api/client.ts
 mobile/src/store/root-store.ts
 mobile/src/utils/realtime-state.ts
 mobile/src/components/connection-banner.tsx
+mobile/src/features/calls/call-overlay.tsx
+mobile/src/features/calls/call-store.ts
+mobile/src/features/calls/call-runtime.ts
 mobile/src/features/radio-live/radio-live-overlay.tsx
 mobile/src/features/radio-live/radio-live-runtime.ts
 mobile/src/features/radio-live/radio-live-store.ts
@@ -109,6 +116,8 @@ Tests añadidos/modificados:
 
 ```text
 mobile/src/api/realtime-refresh-single-flight.test.ts
+mobile/src/features/calls/call-session-convergence.test.tsx
+mobile/src/features/calls/call-store.test.ts
 mobile/src/store/radio-session-convergence.test.tsx
 mobile/src/store/realtime-diagnostics-log.test.ts
 mobile/src/utils/realtime-state.test.ts

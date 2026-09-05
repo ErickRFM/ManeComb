@@ -95,6 +95,25 @@ beforeEach(() => {
 });
 
 describe('call-store signaling global', () => {
+  it('un ACK de start posterior a reset no revive la llamada de otra sesion', async () => {
+    let finishAck: ((ack: CallAck) => void) | undefined;
+    const socket = fakeSocket();
+    const originalEmit = socket.emit.bind(socket);
+    socket.emit = (event, payload, ack) => {
+      if (event === 'rtc:call') { finishAck = ack; return; }
+      originalEmit(event, payload, ack);
+    };
+    state().bindSocket(socket);
+    const pending = state().startCall({ conversationId: 'conv-1', mode: 'audio' });
+    await flush();
+    expect(finishAck).toBeDefined();
+    state().reset(); state().unbindSocket();
+    finishAck!({ ok: true, callId: 'stale-call' });
+    expect(await pending).toEqual({ ok: false, code: 'session_changed' });
+    expect(state().phase).toBe('IDLE');
+    expect(state().callId).toBeNull();
+  });
+
   it('recibe incoming independientemente de la pantalla', () => {
     const socket = fakeSocket();
     state().bindSocket(socket as any);
@@ -358,6 +377,25 @@ describe('call-store runtime y media global', () => {
     capturedRuntime!.params.onConnected();
     expect(state().phase).toBe('CONNECTED');
     expect(typeof state().connectedAt).toBe('number');
+  });
+
+  it('ignora callbacks del runtime retirado aunque conserve el mismo callId', async () => {
+    await acceptFlow();
+    const old = capturedRuntime!;
+    old.params.onConnected();
+    state().bindSocket(fakeSocket());
+    const current = capturedRuntime!;
+    expect(current).not.toBe(old);
+    expect(old.stopped).toBe(1);
+    expect(state().phase).toBe('RECONNECTING');
+    old.params.onConnected();
+    old.params.onLocalStream?.({ id: 'stale' });
+    old.params.onFailed('stale_failure');
+    expect(state().phase).toBe('RECONNECTING');
+    expect(state().localStream).toBeNull();
+    expect(current.stopped).toBe(0);
+    current.params.onConnected();
+    expect(state().phase).toBe('CONNECTED');
   });
 
   it('publica streams del runtime para una UI global', async () => {
