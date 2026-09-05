@@ -11,6 +11,28 @@ Este documento separa **configuracion versionada** de **secretos/configuracion e
 - `NODE_ENV=production`, `REQUIRE_MONGO=true` y `TRUST_PROXY=true` son invariantes de produccion.
 - El backend no debe caer al store embedded si Mongo falla.
 
+### Origin de Socket.IO Android
+
+El handshake realtime conserva los orígenes web canónicos existentes y clientes
+nativos sin `Origin`. Además acepta exclusivamente el self-origin HTTPS derivado
+de `RENDER_EXTERNAL_URL`, normalizado a `URL.origin` al arrancar. Render provee esa
+[variable pública autoritativa](https://render.com/docs/environment-variables#render_external_url);
+no se agrega otra configuración ni se confía en `Host`/`X-Forwarded-Host` del request.
+React Native Android añade ese Origin por defecto al WebSocket; Radio Java puede
+omitirlo. Configuración ausente, HTTP, inválida, con credenciales o wildcard no
+habilita la excepción. Otros servicios `*.onrender.com` NO quedan autorizados.
+
+La excepción vive sólo en `productionRealtimeOriginGuard`: `CLIENT_ORIGINS`,
+CORS y el guard HTTP no cambian. Pasar Origin no autentica: siguen siendo
+obligatorios `handshake.auth.token` y `resolveAuthenticatedUser`, sin cambios a
+sesiones, tenant/role, permisos, RTC/Radio, Redis/rooms ni heartbeat.
+
+Regresión: `npm --prefix backend run test:socket-origin` (también en `npm test`)
+prueba la matriz de orígenes, WebSocket/Socket.IO real con token ausente/inválido/
+válido y rechazo de usuario inexistente/sesión revocada; exige que el self-origin
+siga rechazado por HTTP. Tras deploy, confirmar SHA en `/api/health`, ambos
+transportes Android y recuperación física. CI no acredita esa prueba física.
+
 ## MongoDB
 
 Configurar `MONGO_URI` como secreto en Render. `MONGO_DB_NAME=combisapp` queda versionado.

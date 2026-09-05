@@ -29,6 +29,18 @@ function isTrustedProductionBrowserOrigin(value) {
   return Boolean(origin && TRUSTED_PRODUCTION_BROWSER_ORIGINS.has(origin));
 }
 
+// Render owns this exact public HTTPS URL. Read it once at startup; never derive
+// trust from request Host/Origin, a wildcard, or a caller-supplied fallback.
+const REALTIME_SELF_ORIGIN = normalizeOrigin(process.env.RENDER_EXTERNAL_URL);
+
+function isTrustedRealtimeSelfOrigin(value) {
+  return Boolean(
+    REALTIME_SELF_ORIGIN &&
+    !REALTIME_SELF_ORIGIN.includes("*") &&
+    value === REALTIME_SELF_ORIGIN
+  );
+}
+
 function getRejectedOriginMetadata(req, transport) {
   const rawOrigin = String(req?.headers?.origin || "").trim();
   return {
@@ -42,7 +54,8 @@ function getRejectedOriginMetadata(req, transport) {
 function productionOriginGuard(req, res, next) {
   if (!IS_PRODUCTION_RUNTIME) return next();
 
-  // React Native and server-to-server clients do not send a browser Origin.
+  // Native HTTP and server-to-server clients may omit browser Origin. Android's
+  // WebSocket default Origin is handled separately at the realtime boundary.
   // CORS is not an authentication boundary, but rejecting unexpected browser
   // origins removes unknown previews, localhost and sandbox surfaces from Production.
   const rawOrigin = String(req.headers.origin || "").trim();
@@ -68,7 +81,9 @@ function productionRealtimeOriginGuard(req, res, next) {
   if (!IS_PRODUCTION_RUNTIME) return next();
 
   const rawOrigin = String(req?.headers?.origin || "").trim();
-  if (!rawOrigin || isTrustedProductionBrowserOrigin(rawOrigin)) return next();
+  // React Native Android adds the WebSocket endpoint's HTTPS Origin, unlike
+  // the Java Radio client. This exception must not expand normal HTTP CORS.
+  if (!rawOrigin || isTrustedProductionBrowserOrigin(rawOrigin) || isTrustedRealtimeSelfOrigin(rawOrigin)) return next();
 
   logger.warn({
     action: "ProductionRealtimeOriginRejected",
@@ -78,7 +93,7 @@ function productionRealtimeOriginGuard(req, res, next) {
   });
 
   // Engine.IO middleware errors terminate the handshake before Socket.IO auth.
-  // Native clients are unaffected because they normally omit Origin.
+  // An accepted Origin still has to pass the existing Socket.IO token auth.
   const error = new Error("Origen no permitido");
   error.data = { code: "ORIGIN_NOT_ALLOWED" };
   return next(error);
