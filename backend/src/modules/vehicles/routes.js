@@ -8,6 +8,7 @@ const {
   previewVehicleDeletionImpact,
   retireVehicle
 } = require("../../services/driver-lifecycle");
+const { findVehicleIdentityConflict } = require("./identity-conflict");
 
 const router = Router();
 
@@ -108,6 +109,15 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
       });
     }
 
+    const identityConflict = await findVehicleIdentityConflict(req.app.locals.store, {
+      organizationId,
+      code,
+      plate
+    });
+    if (identityConflict) {
+      return res.status(409).json({ ok: false, ...identityConflict });
+    }
+
     const vehicle = await req.app.locals.store.createVehicle({
       code,
       plate,
@@ -135,7 +145,14 @@ router.post("/", authenticate, requireOrganization, requirePermission("canManage
       "Ya existe una unidad con ese nombre o placas"
     ];
     const isConflict = conflictMessages.some((msg) => error.message?.includes?.(msg));
-    error.statusCode = isConflict ? 409 : 400;
+    if (isConflict) {
+      return res.status(409).json({
+        ok: false,
+        code: "vehicle_identity_conflict",
+        message: "Ya existe una unidad activa con ese nombre/codigo o placas."
+      });
+    }
+    error.statusCode = 400;
     error.publicMessage = "No fue posible crear la unidad";
     return next(error);
   }
@@ -204,6 +221,16 @@ router.patch("/:vehicleId", authenticate, requireOrganization, requirePermission
       });
     }
 
+    const identityConflict = await findVehicleIdentityConflict(req.app.locals.store, {
+      organizationId: getOrganizationId(req.user),
+      code: typeof payload.code !== "undefined" ? payload.code : currentVehicle.code,
+      plate: typeof payload.plate !== "undefined" ? payload.plate : currentVehicle.plate,
+      excludeVehicleId: vehicleId
+    });
+    if (identityConflict) {
+      return res.status(409).json({ ok: false, ...identityConflict });
+    }
+
     const vehicle = await req.app.locals.store.updateVehicle(vehicleId, payload);
 
     getRolesWithPermission("canManageVehicles").forEach((role) => {
@@ -233,7 +260,9 @@ router.patch("/:vehicleId", authenticate, requireOrganization, requirePermission
     ];
     const isConflict = conflictMessages.some((msg) => error.message?.includes?.(msg));
     error.statusCode = isConflict ? 409 : 400;
-    error.publicMessage = "No fue posible actualizar la unidad";
+    error.publicMessage = isConflict
+      ? "Ya existe una unidad activa con ese nombre/codigo o placas."
+      : "No fue posible actualizar la unidad";
     return next(error);
   }
 });
