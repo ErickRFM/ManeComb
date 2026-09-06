@@ -4007,7 +4007,7 @@ async function createMongoStore() {
     }
 
     return {
-      ...enrichVehicle(vehicle),
+      ...(await enrichVehicle(vehicle)),
       locationUpdateApplied: Boolean(updatedVehicle),
       locationUpdateReason: updatedVehicle
         ? "accepted"
