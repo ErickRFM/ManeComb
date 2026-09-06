@@ -66,7 +66,7 @@ describe('mobile reconnect UI stability', () => {
   it('renders the mobile connection notice outside normal page flow', () => {
     const shell = fs.readFileSync(path.join(mobileRoot, 'src', 'components', 'app-shell.tsx'), 'utf8');
 
-    expect(shell).toContain('style={styles.connectionOverlay}');
+    expect(shell).toContain('style={[styles.connectionOverlay, { top: insets.top + AppTheme.spacing.xs }]}');
     expect(shell).toContain("position: 'absolute'");
     expect(shell).toContain('zIndex: 40');
     expect(shell).toContain('const desktopConnectionBanner = isMobileLayout ? null : <ConnectionBanner />;');

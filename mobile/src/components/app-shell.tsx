@@ -11,7 +11,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useShallow } from 'zustand/react/shallow';
 import { AppTheme, DesignSystem, Typography } from '@/constants/theme';
 import type { AppSectionKey } from '@/src/desktop/desktop-navigation';
@@ -67,6 +67,7 @@ export function AppShell({
   scrollProps = {},
 }: AppShellProps) {
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const isDesktopMode = useDesktopMode();
   const isMobileLayout = !isDesktopMode;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -222,7 +223,7 @@ export function AppShell({
       )}
 
       {isMobileLayout ? (
-        <View pointerEvents="box-none" style={styles.connectionOverlay}>
+        <View pointerEvents="box-none" style={[styles.connectionOverlay, { top: insets.top + AppTheme.spacing.xs }]}>
           <ConnectionBanner />
         </View>
       ) : null}
@@ -273,7 +274,6 @@ const styles = StyleSheet.create({
   },
   connectionOverlay: {
     position: 'absolute',
-    top: AppTheme.spacing.xs,
     left: AppTheme.spacing.sm,
     right: AppTheme.spacing.sm,
     zIndex: 40,
