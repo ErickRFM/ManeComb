@@ -134,8 +134,7 @@ export function PlanCard({
     <Pressable
       ref={cardRef as never}
       accessibilityRole="button"
-      accessibilityLabel={`Seleccionar plan ${plan.name}`}
-      accessibilityState={{ selected: active }}
+      accessibilityLabel={`Ver plan ${plan.name}`}
       onPress={onPress}
       style={(state) => {
         const pressed = state.pressed;
@@ -203,19 +202,6 @@ export function PlanCard({
           pressed ? styles.buttonPressed : undefined,
         ];
       }}>
-      {active ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.planSelectedHalo,
-            {
-              borderColor: `${visual.edge}D0`,
-              backgroundColor: 'transparent',
-              opacity: 0.58,
-            },
-          ]}
-        />
-      ) : null}
       <View style={styles.planTop}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
@@ -231,24 +217,6 @@ export function PlanCard({
               ]}>
               {plan.badge}
             </Text>
-            {active ? (
-              <Text
-                style={{
-                  backgroundColor: `${cardEdge}18`,
-                  borderColor: `${cardEdge}66`,
-                  borderRadius: 999,
-                  borderWidth: 1,
-                  color: cardEdge,
-                  fontSize: 9,
-                  fontWeight: '900',
-                  letterSpacing: 0.7,
-                  overflow: 'hidden',
-                  paddingHorizontal: 7,
-                  paddingVertical: 3,
-                }}>
-                SELECCIONADO
-              </Text>
-            ) : null}
           </View>
           <Text
             numberOfLines={2}
