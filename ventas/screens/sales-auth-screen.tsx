@@ -9,7 +9,7 @@ import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { useAppStore } from '@/src/store/use-app-store';
 import { usePublicCommercialFlow } from '@/features/commercial';
 import { trackSalesEvent } from '@/features/commercial/analytics/sales-analytics';
-import { buildCheckoutParams, readCheckoutContext, saveCheckoutContext } from '@/src/utils/checkout-context';
+import { buildCheckoutParams, saveCheckoutContext } from '@/src/utils/checkout-context';
 import { getAuthenticatedHome, isCustomerAccount } from '@/src/utils/account-routing';
 
 import { AuthBackground } from './auth/components/auth-shell';
@@ -61,13 +61,12 @@ export function SalesAuthScreen({ mode }: Props) {
   const [rememberSession, setRememberSession] = useState(false);
   const [helperMessage, setHelperMessage] = useState<string | null>(null);
 
-  const storedCheckout = readCheckoutContext();
-  const selectedPlanId = getFirstParam(params.planId) || storedCheckout?.planId;
+  // Solo una intención explícita en la URL pertenece al flujo actual de autenticación.
+  // El checkout guardado en localStorage puede seguir existiendo, pero no debe convertir
+  // un acceso normal desde el header en una compra ni mostrar un plan viejo en login.
+  const selectedPlanId = getFirstParam(params.planId);
   const routeTrialParam = getFirstParam(params.trial);
-  const routeRequestsTrial =
-    typeof routeTrialParam === 'string'
-      ? routeTrialParam === '1'
-      : Boolean(storedCheckout?.requestTrial && storedCheckout.planId === selectedPlanId);
+  const routeRequestsTrial = typeof routeTrialParam === 'string' ? routeTrialParam === '1' : false;
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan.id === selectedPlanId) || null,
     [plans, selectedPlanId]
@@ -100,8 +99,8 @@ export function SalesAuthScreen({ mode }: Props) {
   }, [routeRequestsTrial, selectedPlanId]);
 
   if (user) {
-    // La COMPRA manda: si hay un checkout pendiente, cualquier cuenta autenticada continúa al pago
-    // (antes solo lo hacían las cuentas de cliente y el resto perdía la compra en curso).
+    // La intención de compra explícita manda: quien llegó con planId continúa al pago.
+    // Un login normal, sin planId en la ruta, entra al producto que corresponde a su cuenta.
     if (selectedPlanId) {
       return <Redirect href={buildPaymentRoute(selectedPlanId, routeRequestsTrial) as never} />;
     }
@@ -256,13 +255,13 @@ export function SalesAuthScreen({ mode }: Props) {
           <View style={[styles.form, { gap: sizing.formGap, padding: sizing.formPadding }]}>
             <AuthHeader isRegister={isRegister} logoSize={sizing.logoSize} />
 
-            {selectedPlanId ? (
+            {isRegister && selectedPlanId ? (
               <View style={checkoutContextStyles.card}>
                 <View style={checkoutContextStyles.icon}>
                   <MaterialCommunityIcons name="bus-electric" size={20} color="#7A3CFF" />
                 </View>
                 <View style={checkoutContextStyles.copy}>
-                  <Text style={checkoutContextStyles.eyebrow}>TU SELECCIÓN SE CONSERVA</Text>
+                  <Text style={checkoutContextStyles.eyebrow}>PLAN ELEGIDO</Text>
                   <Text style={checkoutContextStyles.title}>
                     {selectedPlan ? `${selectedPlan.name} · ${selectedPlan.units} unidades` : 'Plan ManeComb seleccionado'}
                   </Text>
