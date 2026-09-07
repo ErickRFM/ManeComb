@@ -200,11 +200,34 @@ for (const fragment of [
   'Referrer-Policy: no-referrer',
   'Strict-Transport-Security: max-age=63072000; includeSubDomains',
   "Content-Security-Policy: default-src 'self'",
-  'https://admin-api.manecomb.com',
+  "connect-src 'self'",
   'Cache-Control: no-store',
 ]) {
   if (!adminHeaders.includes(fragment)) fail(`admin-global/public/_headers: falta ${fragment}`);
 }
+if (adminHeaders.includes('admin-api.manecomb.com')) {
+  fail('admin-global/public/_headers: el navegador no debe conectar directamente al hostname API legado');
+}
+requireContains(
+  'admin-global/worker.mjs',
+  /request\.headers\.get\('cf-access-jwt-assertion'\)/,
+  'el proxy same-origin debe fallar cerrado sin assertion de Cloudflare Access'
+);
+requireContains(
+  'admin-global/worker.mjs',
+  /PLATFORM_PATH_PREFIX = '\/api\/platform'/,
+  'el Worker debe limitar el proxy a Platform'
+);
+requireContains(
+  'admin-global/worker.mjs',
+  /env\.ASSETS\.fetch\(request\)/,
+  'el Worker debe delegar el resto exclusivamente a Static Assets'
+);
+requireAbsent(
+  'admin-global/worker.mjs',
+  /['"]cookie['"]/,
+  'el proxy no debe reenviar cookies del navegador al origin Render'
+);
 
 const vite = read('ventas/vite.config.js');
 if (!vite.includes('assertNoPrivateClientEnvironment')) {

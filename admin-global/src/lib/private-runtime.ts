@@ -27,8 +27,8 @@ function normalizeHostname(value: string | undefined) {
 export function validatePrivateAdminRuntime(input: PrivateAdminRuntimeInput): PrivateAdminRuntimeStatus {
   const accessRequired = parseBoolean(input.accessRequired);
   const apiUrl = String(input.apiUrl || '').trim();
-  const expectedApiHost = normalizeHostname(input.expectedApiHost || 'admin-api.manecomb.com');
   const expectedAdminHost = normalizeHostname(input.expectedAdminHost || 'admin.manecomb.com');
+  const expectedApiHost = normalizeHostname(input.expectedApiHost || expectedAdminHost);
   const currentAdminHost = normalizeHostname(input.currentAdminHost);
 
   if (!input.production) {
@@ -51,6 +51,9 @@ export function validatePrivateAdminRuntime(input: PrivateAdminRuntimeInput): Pr
   if (!expectedAdminHost || currentAdminHost !== expectedAdminHost) {
     throw new Error(`Admin Global solo puede ejecutarse en el hostname privado ${expectedAdminHost}.`);
   }
+  if (!expectedApiHost || expectedApiHost !== expectedAdminHost) {
+    throw new Error('Admin Global requiere API same-origin en producción.');
+  }
 
   let parsed: URL;
   try {
@@ -62,14 +65,17 @@ export function validatePrivateAdminRuntime(input: PrivateAdminRuntimeInput): Pr
   if (parsed.protocol !== 'https:') {
     throw new Error('VITE_API_URL debe usar HTTPS en producción.');
   }
-  if (!expectedApiHost || normalizeHostname(parsed.hostname) !== expectedApiHost) {
-    throw new Error(`VITE_API_URL debe apuntar al hostname privado ${expectedApiHost}.`);
+  if (normalizeHostname(parsed.hostname) !== expectedAdminHost) {
+    throw new Error(`VITE_API_URL debe apuntar al mismo hostname privado ${expectedAdminHost}.`);
+  }
+  if (parsed.pathname !== '/' || parsed.search || parsed.hash) {
+    throw new Error('VITE_API_URL debe contener solo el origen privado, sin ruta, query o hash.');
   }
 
   return {
     production: true,
     accessRequired: true,
-    apiUrl: parsed.toString().replace(/\/$/, ''),
+    apiUrl: parsed.origin,
     apiHost: normalizeHostname(parsed.hostname),
     adminHost: currentAdminHost,
     ready: true,
