@@ -19,7 +19,7 @@ La navegación SPA y el proxy se resuelven mediante `admin-global/wrangler.jsonc
 }
 ```
 
-`worker.mjs` intercepta únicamente `/api/platform` y `/api/platform/*`. El resto se delega al binding `ASSETS`. La API que ve el navegador es therefore `https://admin.manecomb.com/api/platform/*`; Render nunca se configura como `VITE_API_URL`.
+`worker.mjs` intercepta únicamente `/api/platform` y `/api/platform/*`. El resto se delega al binding `ASSETS`. La API que ve el navegador es `https://admin.manecomb.com/api/platform/*`; Render nunca se configura como `VITE_API_URL`.
 
 No debe existir `admin-global/public/_redirects`. La regla de Pages `/* /index.html 200` no corresponde a Workers Static Assets y puede generar un bucle (`100324`).
 
