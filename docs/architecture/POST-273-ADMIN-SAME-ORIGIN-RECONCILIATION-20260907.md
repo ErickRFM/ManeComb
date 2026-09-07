@@ -84,11 +84,14 @@ No declarar Admin Global productivo solo por CI. Después del merge se requiere:
 - `200` con Access + Platform + MFA;
 - `platform_owner` productivo y pruebas de MFA, refresh, expiry, revoke y logout.
 
+Por esa razón PR #275 se mantiene **Draft** con `PHYSICAL_GATE: PENDING`: el código puede certificarse en CI, pero la frontera Cloudflare Access + Worker + Render necesita evidencia del runtime productivo antes de declararse cerrada.
+
 ## Veredicto
 
 ```text
 MAIN_7A8C015_TO_F25DE8DF_SEMANTICALLY_RECONCILED
 AUTHORITY_OWNERS_UNCHANGED
 ADMIN_GLOBAL_TRANSPORT_TOPOLOGY_CHANGED_NOT_AUTHORITY
+PR_275_DRAFT_PHYSICAL_GATE_PENDING
 EXTERNAL_ADMIN_PRODUCTION_AUTH_STILL_PENDING
 ```
