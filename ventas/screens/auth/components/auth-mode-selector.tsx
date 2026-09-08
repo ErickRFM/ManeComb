@@ -16,7 +16,7 @@ export function AuthModeSelector({ currentMode, onSelectMode }: Props) {
         onPress={() => onSelectMode('login')}
       />
       <SegmentButton
-        label="Registrarse"
+        label="Crear cuenta"
         active={currentMode === 'register'}
         onPress={() => onSelectMode('register')}
       />

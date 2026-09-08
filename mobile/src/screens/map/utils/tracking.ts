@@ -1,6 +1,7 @@
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import { sortByCriticality } from '@shared/operational-contract';
 import type { Incident, Vehicle } from '@/src/types/app';
+import { isIncidentActive } from '../../alerts/utils/alerts.utils';
 
 /**
  * Frescura, estado y visibilidad ya vienen resueltos en el snapshot canonico.
@@ -150,10 +151,12 @@ export function getTrackingHudRouteSummary(activeRouteCount: number, unknownStat
 
 export function getVisibleIncidents(incidents: readonly Incident[], vehicleById: Map<string, Vehicle>) {
   return incidents.filter((incident) =>
-    (typeof incident.vehicleId === 'string' && vehicleById.has(incident.vehicleId)) ||
-    (
-      Number.isFinite(Number(incident.location?.latitude)) &&
-      Number.isFinite(Number(incident.location?.longitude))
+    isIncidentActive(incident) && (
+      (typeof incident.vehicleId === 'string' && vehicleById.has(incident.vehicleId)) ||
+      (
+        Number.isFinite(Number(incident.location?.latitude)) &&
+        Number.isFinite(Number(incident.location?.longitude))
+      )
     )
   );
 }

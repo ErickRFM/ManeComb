@@ -1,6 +1,8 @@
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
+import type { Incident, Vehicle } from '@/src/types/app';
 import {
   getActiveRouteCount,
+  getActiveIncident,
   getMappableUnits,
   getTrackingAudience,
   getTrackingEmptyState,
@@ -48,6 +50,40 @@ function unit(overrides: Partial<OperationalUnitSnapshot> = {}): OperationalUnit
 }
 
 describe('selectores del mapa de seguimiento', () => {
+  const alert = (status: Incident['status'], id: string = status): Incident => ({
+    id, status, title: 'Test alert', description: 'Test fixture', severity: 'critical',
+    type: 'security', vehicleId: 'veh-1', createdAt: '2026-08-12T16:39:56.039Z',
+    routeId: null, reporterId: 'test-reporter', media: [],
+    location: { latitude: 19.4, longitude: -99.1 },
+  });
+
+  it('keeps resolved vehicle alerts in history but removes their map marker and active alert', () => {
+    const resolved = Object.freeze(alert('resolved'));
+    const history = Object.freeze([resolved]);
+    const vehicles = new Map([['veh-1', { id: 'veh-1' } as Vehicle]]);
+    const visible = getVisibleIncidents(history, vehicles);
+    expect(visible).toEqual([]);
+    expect(getActiveIncident(visible, 0)).toBeNull();
+    expect(history).toEqual([resolved]);
+    expect(history[0].status).toBe('resolved');
+  });
+
+  it('excludes resolved coordinate-only alerts while retaining open and in-progress incidents', () => {
+    const resolved = { ...alert('resolved'), vehicleId: null };
+    const open = alert('open');
+    const attending = alert('in_progress');
+    expect(getVisibleIncidents([resolved, open, attending], new Map())).toEqual([open, attending]);
+  });
+
+  it('does not resurrect resolved incidents on a fresh history array or map refresh', () => {
+    const open = alert('open', 'same-incident');
+    expect(getVisibleIncidents([open], new Map())).toHaveLength(1);
+    const resolved = { ...open, status: 'resolved' as const };
+    for (const history of [[resolved], [{ ...resolved }], [resolved]]) {
+      expect(getVisibleIncidents(history, new Map())).toEqual([]);
+    }
+  });
+
   // El mapa de seguimiento debe dibujar la ultima posicion conocida igual que
   // el mini-mapa de ruta. La frescura cambia como se ve el marcador, nunca si
   // se dibuja.
