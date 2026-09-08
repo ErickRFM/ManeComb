@@ -3,7 +3,8 @@ const http = require("node:http");
 
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
-const { resetMetrics } = require("../src/services/metrics");
+const { emitOperationalUnitUpdate } = require("../src/services/operational-units-service");
+const { getMetricsSnapshot, resetMetrics } = require("../src/services/metrics");
 
 async function withServer(handler) {
   const app = createApp({
@@ -117,7 +118,44 @@ async function main() {
     assert.equal("data" in metrics, false);
   });
 
-  console.log("ok - observabilidad pública segura separa health, liveness y readiness");
+  // Persistir GPS y fallar al ensamblar el snapshot realtime no debe quedar
+  // invisible. La persistencia sigue siendo fail-open respecto a la emisión,
+  // pero ahora deja una señal agregada y de cardinalidad acotada para distinguir
+  // "Mongo actualizado / UI sin realtime" de un fallo de ingestión.
+  const emissionResult = await emitOperationalUnitUpdate({
+    io: {
+      to() {
+        throw new Error("no realtime emission is expected after snapshot failure");
+      }
+    },
+    store: {
+      listRouteSessions() {
+        throw new Error("forced snapshot assembly failure");
+      },
+      listIncidents() {
+        return [];
+      }
+    },
+    vehicle: {
+      id: "veh-observability",
+      organizationId: "org-observability"
+    },
+    organizationId: "org-observability",
+    getRolesWithPermission: () => ["owner"]
+  });
+
+  assert.equal(emissionResult, null, "la falla de snapshot no debe revertir ni fabricar una emisión parcial");
+  const snapshotFailureMetric = getMetricsSnapshot().counters.find(
+    (counter) =>
+      counter.name === "operational_snapshot_emit_failed" &&
+      counter.tags?.decision === "location_update" &&
+      counter.tags?.stage === "snapshot_build"
+  );
+  assert.equal(snapshotFailureMetric?.value, 1, "la falla realtime debe ser observable sin tags de alta cardinalidad");
+  assert.equal("unitId" in (snapshotFailureMetric?.tags || {}), false);
+  assert.equal("vehicleId" in (snapshotFailureMetric?.tags || {}), false);
+
+  console.log("ok - observabilidad pública segura separa health/readiness y expone fallas agregadas de snapshot realtime");
 }
 
 main().catch((error) => {

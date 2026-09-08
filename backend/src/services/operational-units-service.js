@@ -6,7 +6,8 @@ const {
   buildOperationalUnitSnapshot
 } = require("../domain/operational-unit-snapshot");
 const { attachOperationalJourney } = require("../domain/operational-journey-snapshot");
-const { observeDuration } = require("./metrics");
+const { incrementMetric, observeDuration } = require("./metrics");
+const logger = require("./logger");
 
 /**
  * Ensambla la proyeccion operacional canonica.
@@ -279,6 +280,25 @@ async function emitOperationalUnitUpdate({
   try {
     snapshot = await buildSnapshotForVehicle({ store, vehicle, organizationId });
   } catch (error) {
+    const org = String(organizationId || vehicle.organizationId || "").trim();
+    const unitId = String(vehicle.id || vehicle._id || "").trim();
+    const decision = reason || "location_update";
+
+    incrementMetric("operational_snapshot_emit_failed", 1, {
+      decision,
+      stage: "snapshot_build"
+    });
+    logger.warn({
+      action: "OperationalUnitSnapshotBuildFailed",
+      error,
+      metadata: {
+        decision,
+        unitId
+      },
+      module: "Tracking",
+      organizationId: org || null,
+      status: "degraded"
+    });
     return null;
   }
 
