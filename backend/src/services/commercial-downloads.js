@@ -214,7 +214,7 @@ function buildCommercialDownloadables(order, user = null) {
 function buildActivationKitHtml(order) {
   const companyName = escapeHtml(order?.companyName || "Cliente");
   const contactName = escapeHtml(order?.contactName || "Equipo");
-  const supportEmail = escapeHtml(COMMERCIAL_SUPPORT_EMAIL || "soporte@manecomb.app");
+  const supportEmail = escapeHtml(COMMERCIAL_SUPPORT_EMAIL || "ventas@manecomb.com");
   const supportPhone = escapeHtml(COMMERCIAL_SUPPORT_PHONE || "Pendiente");
   const portalUrl = escapeHtml(`${APP_URL.replace(/\/$/, "")}/portal`);
   const legalName = escapeHtml(getCommercialLegalName());
