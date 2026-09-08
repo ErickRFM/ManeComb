@@ -2,12 +2,16 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const ACCEPTANCE_EXPIRES_AT = Date.parse('2026-09-15T00:00:00Z');
+const JS_YAML_ACCEPTANCE_EXPIRES_AT = Date.parse('2026-09-10T00:00:00Z');
+const JS_YAML_ADVISORY_URL = 'https://github.com/advisories/GHSA-2883-xcg3-v3hh';
 const EXPECTED_VULNERABLE_VERSIONS = new Map([
   ['image-size', '1.2.1'],
+  ['js-yaml', '4.3.1'],
 ]);
 const ACCEPTED_ADVISORY_URLS = new Set([
   'https://github.com/advisories/GHSA-w3rx-r6r6-pgpr',
   'https://github.com/advisories/GHSA-5p2g-fcmc-qvqq',
+  JS_YAML_ADVISORY_URL,
 ]);
 const BLOCKING_SEVERITIES = new Set(['high', 'critical']);
 
@@ -16,9 +20,39 @@ function fail(message) {
   process.exit(1);
 }
 
+function readLockfile() {
+  return JSON.parse(readFileSync('package-lock.json', 'utf8'));
+}
+
 function readInstalledVersion(packageName) {
-  const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+  const lock = readLockfile();
   return lock?.packages?.[`node_modules/${packageName}`]?.version || null;
+}
+
+function assertReviewedJsYamlPlacement() {
+  const lock = readLockfile();
+  const entries = Object.entries(lock?.packages || {})
+    .filter(([path]) => path === 'node_modules/js-yaml' || path.endsWith('/node_modules/js-yaml'));
+
+  if (!entries.length) {
+    fail('js-yaml temporary review is stale because no installed js-yaml nodes remain');
+  }
+
+  const expectedVersions = new Set(['3.15.1', '4.3.1']);
+  for (const [path, entry] of entries) {
+    if (!expectedVersions.has(entry?.version)) {
+      fail(
+        `js-yaml node ${path} changed to ${entry?.version || 'missing'}; ` +
+        'remove or re-review the temporary exception'
+      );
+    }
+    if (entry?.dev !== true && entry?.devOptional !== true) {
+      fail(
+        `js-yaml node ${path} is no longer marked dev/devOptional; ` +
+        'the short-lived non-runtime review no longer applies'
+      );
+    }
+  }
 }
 
 function advisoryUrls(vulnerability) {
@@ -76,6 +110,12 @@ if (Date.now() >= ACCEPTANCE_EXPIRES_AT) {
   fail('temporary risk acceptance expired on 2026-09-15; review upstream fixes before renewing');
 }
 
+if (Date.now() >= JS_YAML_ACCEPTANCE_EXPIRES_AT) {
+  fail(
+    'temporary js-yaml review expired on 2026-09-10; update the lockfile to js-yaml 4.3.2/3.15.2 instead of renewing'
+  );
+}
+
 for (const [packageName, expectedVersion] of EXPECTED_VULNERABLE_VERSIONS) {
   const installedVersion = readInstalledVersion(packageName);
   if (installedVersion !== expectedVersion) {
@@ -85,6 +125,8 @@ for (const [packageName, expectedVersion] of EXPECTED_VULNERABLE_VERSIONS) {
     );
   }
 }
+
+assertReviewedJsYamlPlacement();
 
 const auditInvocation = process.platform === 'win32'
   ? {
@@ -149,11 +191,13 @@ for (const expectedUrl of ACCEPTED_ADVISORY_URLS) {
 }
 
 console.warn('TEMPORARY RISK ACCEPTANCE — Mobile production dependency audit');
-console.warn('Expires: 2026-09-15T00:00:00Z');
+console.warn('General acceptance expires: 2026-09-15T00:00:00Z');
+console.warn('js-yaml acceptance expires earlier: 2026-09-10T00:00:00Z');
 for (const entry of acceptedAdvisories) {
   console.warn(`- ${entry.name} [${entry.severity}]: ${entry.url}`);
 }
 console.warn(
-  'All high/critical findings resolve exclusively to the reviewed image-size advisories. ' +
-  'Any new advisory, package version drift, or expiration fails this job.'
+  'All high/critical findings resolve exclusively to explicitly reviewed temporary advisories. ' +
+  'js-yaml remains merge-only accepted for the reviewed dev/devOptional lock placement and must be upgraded to 4.3.2/3.15.2 before 2026-09-10. ' +
+  'Any new advisory, package version/placement drift, or expiration fails this job.'
 );
