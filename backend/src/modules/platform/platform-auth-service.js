@@ -1,9 +1,22 @@
 const bcrypt = require("bcryptjs");
-const { signPlatformToken, signPlatformChallengeToken, isPlatformSecretValid } = require("../../utils/platform-jwt");
-const { createPlatformSession, rotatePlatformRefreshToken } = require("../../services/platform-sessions");
+const { randomUUID } = require("crypto");
+const {
+  signPlatformToken,
+  signPlatformChallengeToken,
+  signPlatformPasswordResetToken,
+  verifyPlatformPasswordResetToken,
+  getPasswordChangedAtVersion,
+  isPlatformSecretValid
+} = require("../../utils/platform-jwt");
+const {
+  createPlatformSession,
+  rotatePlatformRefreshToken,
+  revokeAllPlatformSessions
+} = require("../../services/platform-sessions");
 const { recordPlatformAction } = require("../../services/platform-audit");
 const { sanitizePlatformUser } = require("../../middlewares/platform-auth");
 const { isMfaRequired, isMfaOperational } = require("./platform-mfa-service");
+const { validatePasswordStrength } = require("../../utils/password-policy");
 
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_WINDOW_MS = 30 * 60 * 1000;
@@ -122,6 +135,101 @@ async function login(email, password, req) {
   };
 }
 
+async function requestPasswordReset(email, req) {
+  if (!isPlatformSecretValid()) {
+    return { error: "Recuperación de contraseña no disponible", status: 503 };
+  }
+
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  const user = await getStore(req).getPlatformUserByEmail(normalizedEmail);
+
+  if (!user || user.status !== "active") {
+    await recordPlatformAction(req, {
+      action: "platform.auth.password_reset_requested",
+      actorId: null,
+      metadata: { result: "accepted", accountMatched: false }
+    });
+    return { accepted: true };
+  }
+
+  const requestId = randomUUID();
+  const token = signPlatformPasswordResetToken(user, requestId);
+
+  await recordPlatformAction(req, {
+    action: "platform.auth.password_reset_requested",
+    actorId: user._id,
+    platformRole: user.role,
+    metadata: { result: "accepted", requestId }
+  });
+
+  return {
+    accepted: true,
+    requestId,
+    token,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role
+    }
+  };
+}
+
+async function resetPassword(token, password, req) {
+  if (!isPlatformSecretValid()) {
+    return { error: "Recuperación de contraseña no disponible", status: 503 };
+  }
+
+  const passwordValidationError = validatePasswordStrength(password);
+  if (passwordValidationError) {
+    return { error: passwordValidationError, status: 400 };
+  }
+
+  let decoded;
+  try {
+    decoded = verifyPlatformPasswordResetToken(token);
+  } catch {
+    return { error: "El enlace de recuperación ha expirado o es inválido", status: 400 };
+  }
+
+  const user = await getStore(req).getPlatformUserById(decoded.sub);
+  if (!user || user.status !== "active") {
+    return { error: "El enlace de recuperación ha expirado o es inválido", status: 400 };
+  }
+
+  if (Number(decoded.pwdv || 0) !== getPasswordChangedAtVersion(user)) {
+    return { error: "El enlace de recuperación ha expirado o ya fue utilizado", status: 400 };
+  }
+
+  const passwordChangedAt = new Date();
+  const updated = await getStore(req).updatePlatformUser(user._id, {
+    passwordHash: bcrypt.hashSync(password, 10),
+    passwordChangedAt,
+    failedLoginAttempts: 0,
+    lockedUntil: null,
+    updatedAt: passwordChangedAt
+  });
+
+  if (!updated) {
+    return { error: "No fue posible actualizar la contraseña", status: 500 };
+  }
+
+  const revokedCount = await revokeAllPlatformSessions(user._id, null, "password_reset");
+
+  await recordPlatformAction(req, {
+    action: "platform.auth.password_reset_completed",
+    actorId: user._id,
+    platformRole: user.role,
+    severity: "warning",
+    metadata: { result: "success", revokedCount, requestId: decoded.jti || null }
+  });
+
+  return {
+    message: "Contraseña actualizada. Inicia sesión nuevamente.",
+    revokedCount
+  };
+}
+
 async function refresh(refreshTokenValue, req) {
   if (!isPlatformSecretValid()) {
     return { error: "Autenticación de plataforma no disponible", status: 503 };
@@ -208,7 +316,6 @@ async function logout(req) {
 async function logoutAll(req) {
   const userId = req.platformUser.id;
   const currentSessionId = req.platformSession._id;
-  const { revokeAllPlatformSessions } = require("../../services/platform-sessions");
 
   const count = await revokeAllPlatformSessions(userId, currentSessionId, "global_logout");
 
@@ -224,6 +331,8 @@ async function logoutAll(req) {
 
 module.exports = {
   login,
+  requestPasswordReset,
+  resetPassword,
   refresh,
   getSession,
   logout,
