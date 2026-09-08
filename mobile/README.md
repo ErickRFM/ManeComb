@@ -51,7 +51,7 @@ Variables aceptadas:
 - `MANECOMB_SOCKET_URL`, por ejemplo `http://<IP-LAN-PC>:5000`.
 - `MANECOMB_LAN_HOST`, por ejemplo `<IP-LAN-PC>`.
 - `MANECOMB_API_TIMEOUT_MS=15000`.
-- `GOOGLE_MAPS_API_KEY` o `MANECOMB_GOOGLE_MAPS_API_KEY` para Google Maps.
+- `MAPBOX_ACCESS_TOKEN` o `MANECOMB_MAPBOX_ACCESS_TOKEN` para Mapbox.
 - `MANECOMB_ANDROID_CLEARTEXT=1` para permitir HTTP local en desarrollo.
 
 Android Emulator usa `10.0.2.2` automaticamente cuando detecta backend local en la misma PC.
