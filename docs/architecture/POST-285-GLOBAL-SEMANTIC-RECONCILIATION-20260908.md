@@ -33,6 +33,15 @@ La autoridad continúa en backend (`tracking-time.js` + `vehicle-location-ingest
 
 La fixture histórica que modela explícitamente una cola monotónica fue actualizada para declarar `clientQueueAgeSource=monotonic`; las pruebas nuevas de PR #286 mantienen cobertura separada para legacy/untrusted y fail-closed.
 
+## Seguridad de dependencias detectada durante el cierre
+
+El gate de dependencias detectó durante la integración un advisory high nuevo de `js-yaml`. No se aceptó temporalmente ni se silenció. El árbol Mobile se regeneró con overrides acotados por major para conservar compatibilidad de consumidores:
+
+- consumidores `js-yaml@^3` -> `3.15.2`;
+- consumidores `js-yaml@^4` -> `4.3.2`.
+
+Ambas líneas son las versiones parchadas para el advisory observado. El lock conserva el consumidor legacy de `@istanbuljs/load-nyc-config` en 3.x y el árbol moderno en 4.x, evitando un salto de major forzado. El workflow temporal utilizado únicamente para regenerar el lock se elimina en el mismo cambio generado y no forma parte del árbol final.
+
 ## Resultado
 
 ```text
@@ -42,6 +51,7 @@ ADMIN_SAME_ORIGIN_IS_TRANSPORT_NOT_AUTHORITY
 COMMERCIAL_DOMAIN_CLEANUP_NO_BUSINESS_AUTHORITY_CHANGE
 MAPBOX_ONLY_ENVIRONMENT_CONTRACT_CONFIRMED
 PR_286_TRACKING_TIME_REMAINS_BACKEND_AUTHORITATIVE
+JS_YAML_HIGH_ADVISORY_PATCHED_WITH_MAJOR_COMPATIBILITY
 ```
 
 Se refrescan `baseline.commit` y `authorityReview.commit` a `main@6c04591cd7c99214305206bc60adf860e6edee90` sin ampliar los límites de drift (`5`).
