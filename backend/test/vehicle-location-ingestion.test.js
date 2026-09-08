@@ -52,7 +52,7 @@ async function main() {
 
   // La duplicidad se prueba antes de avanzar el reloj de la unidad: un mismo
   // packetId/timestamp debe seguir siendo duplicate, no confundirse con el
-  // out-of-order legítimo que se prueba más abajo.
+  // out-of-order legitimo que se prueba mas abajo.
   const eventCountBeforeDuplicate = io.events.length;
   const duplicate = await ingestVehicleLocation({ actor, io, payload: base, store, transport: "socket" });
   assert.equal(duplicate.accepted, false);
@@ -113,6 +113,33 @@ async function main() {
   assert.equal(moved.positionDecision.kind, "movement");
   assert.deepEqual(store.getVehicleById("vehicle-101").location, realMovement,
     "al superar el radio de jitter la unidad debe avanzar");
+
+  // Un backlog de un cliente actual/legacy trae clientQueueAgeMs pero no puede
+  // demostrar que esa edad sea monotónica. Con un reloj fuera del skew queda
+  // historical-only: no mueve la unidad ni publica un snapshot realtime.
+  const eventCountBeforeUntrustedBacklog = io.events.length;
+  const untrustedBacklog = await ingestVehicleLocation({
+    actor,
+    io,
+    payload: {
+      ...base,
+      packetId: "gps-contract-untrusted-backlog",
+      timestamp: new Date(timestampMs - 60 * 60 * 1000).toISOString(),
+      clientQueueAgeMs: 60 * 60 * 1000,
+      coordinates: { latitude: 18.9, longitude: -98.9 }
+    },
+    store,
+    transport: "http"
+  });
+  assert.equal(untrustedBacklog.accepted, false);
+  assert.equal(untrustedBacklog.decision, "historical_only_untrusted_time");
+  assert.equal(untrustedBacklog.temporal.liveEligible, false);
+  assert.equal(untrustedBacklog.temporal.queueAgeTrusted, false);
+  assert.equal(untrustedBacklog.temporal.clientQueueAgeSource, "legacy_unverified");
+  assert.deepEqual(store.getVehicleById("vehicle-101").location, realMovement,
+    "un backlog con edad no verificable nunca puede pisar la posicion viva");
+  assert.equal(io.events.length, eventCountBeforeUntrustedBacklog,
+    "historical-only no emite operational-unit:updated");
 
   const older = await ingestVehicleLocation({ actor, io, payload: { ...base, packetId: "gps-contract-3",
     coordinates: { latitude: 18, longitude: -98 } }, store, transport: "socket" });
