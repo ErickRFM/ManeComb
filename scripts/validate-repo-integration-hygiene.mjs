@@ -26,6 +26,13 @@ function requireContains(relativePath, pattern, reason) {
   }
 }
 
+function requireNotContains(relativePath, pattern, reason) {
+  const source = read(relativePath);
+  if (pattern.test(source)) {
+    problems.push(`${relativePath}: ${reason}`);
+  }
+}
+
 for (const [relativePath, reason] of [
   [
     'backend/modules/communication/templates/base.js',
@@ -73,6 +80,17 @@ if (!themeHook.includes('getThemePreferenceScope')) {
 if (themeHook.includes('setThemeMode: state.setThemeMode')) {
   problems.push('mobile/src/hooks/use-app-theme.ts: volvió a conectarse al setter global legado');
 }
+
+requireNotContains(
+  'backend/src/services/commercial-downloads.js',
+  /manecomb\.app/i,
+  'un artefacto comercial activo volvió a apuntar al dominio retirado manecomb.app'
+);
+requireContains(
+  'backend/src/services/commercial-downloads.js',
+  /COMMERCIAL_SUPPORT_EMAIL\s*\|\|\s*["']ventas@manecomb\.com["']/,
+  'el kit comercial debe conservar un fallback de soporte bajo el dominio canónico manecomb.com'
+);
 
 const commercialRc = path('RC-VENTAS-PLANES-FINAL-01.md');
 if (!existsSync(commercialRc) || statSync(commercialRc).size < 200) {
