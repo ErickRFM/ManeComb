@@ -15,7 +15,11 @@ const http = require("node:http");
 const createApp = require("../src/app");
 const { createEmbeddedStore } = require("../src/data/store");
 const { signToken } = require("../src/utils/jwt");
-const { resolveSessionStartedAt, MAX_CLIENT_QUEUE_AGE_MS } = require("../src/services/tracking-time");
+const {
+  CLIENT_QUEUE_AGE_SOURCE_MONOTONIC,
+  resolveSessionStartedAt,
+  MAX_CLIENT_QUEUE_AGE_MS
+} = require("../src/services/tracking-time");
 const { ingestVehicleLocation } = require("../src/services/vehicle-location-ingestion");
 const { buildOperationalUnitSnapshot } = require("../src/domain/operational-unit-snapshot");
 
@@ -160,8 +164,9 @@ async function testOfflineJourneyKeepsHistoryAfterReconciliation() {
     );
 
     const actor = context.store.getUserById("user-driver-01");
-    // Los puntos encolados viajan con el id LOCAL `pending:{vehicleId}` y con
-    // timestamps de captura reconstruidos por la edad de cola.
+    // Esta fixture modela un productor que mide la edad de cola con reloj
+    // monotónico. El contrato exige declarar esa procedencia para que el backend
+    // pueda reconstruir la captura y permitir que compita por estado live.
     let accepted = 0;
     for (let index = 0; index < 8; index += 1) {
       const capturedAt = new Date(offlineStartedAt.getTime() + (index + 1) * 60 * 1000);
@@ -175,6 +180,7 @@ async function testOfflineJourneyKeepsHistoryAfterReconciliation() {
           coordinates: { latitude: 19.415 + index * 0.002, longitude: -99.073 + index * 0.002 },
           timestamp: capturedAt.toISOString(),
           clientQueueAgeMs: reconnectedAt.getTime() - capturedAt.getTime(),
+          clientQueueAgeSource: CLIENT_QUEUE_AGE_SOURCE_MONOTONIC,
           accuracy: 7,
           packetId: `offline-packet-${index}`,
           sessionId: `pending:${VEHICLE_ID}`
@@ -183,7 +189,7 @@ async function testOfflineJourneyKeepsHistoryAfterReconciliation() {
       if (result.accepted) accepted += 1;
     }
 
-    assert.equal(accepted, 8, "los paquetes de la cola offline deben aceptarse");
+    assert.equal(accepted, 8, "los paquetes de la cola offline monotónica deben aceptarse");
     const persisted = positionsOf(context.store, session.id);
     assert.equal(
       persisted.length,
