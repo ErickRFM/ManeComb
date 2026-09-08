@@ -1,16 +1,22 @@
 const assert = require("node:assert/strict");
 const {
+  CLIENT_QUEUE_AGE_SOURCE_LEGACY,
+  CLIENT_QUEUE_AGE_SOURCE_MONOTONIC,
+  CLIENT_QUEUE_AGE_SOURCE_WALL_CLOCK,
   MAX_CLIENT_QUEUE_AGE_MS,
   buildGpsFreshness,
   normalizeTrackingTime
 } = require("../src/services/tracking-time");
 const receivedAt = new Date("2026-07-17T12:00:00.000Z");
 
+// Paquete directo: conserva la politica preexistente.
 let decision = normalizeTrackingTime("2026-07-17T12:01:00.000Z", receivedAt);
 assert.equal(decision.timestampSource, "client");
+assert.equal(decision.liveEligible, true);
 decision = normalizeTrackingTime("2026-07-17T13:00:00.000Z", receivedAt);
 assert.equal(decision.timestampSource, "server");
 assert.equal(decision.discardReason, "client_clock_ahead");
+assert.equal(decision.liveEligible, true, "un paquete directo usa recepcion servidor si el reloj esta sesgado");
 assert.equal(decision.clientTimestamp, "2026-07-17T13:00:00.000Z");
 decision = normalizeTrackingTime("2026-07-17T10:00:00.000Z", receivedAt);
 assert.equal(decision.discardReason, "client_clock_behind");
@@ -18,45 +24,96 @@ decision = normalizeTrackingTime("2026-07-17T11:59:30.000Z", receivedAt);
 assert.equal(decision.timestampSource, "client");
 assert.equal(decision.discardReason, null);
 
-// A queued packet carries elapsed transport age. Server receipt stays truthful,
-// while processedTimestamp represents when the position was effectively captured.
+// Solo una edad declarada monotónica puede reconstruir la captura desde la
+// recepcion servidor y competir por el ordering vivo.
+decision = normalizeTrackingTime(
+  "2026-07-17T10:00:00.000Z",
+  receivedAt,
+  30 * 60 * 1000,
+  CLIENT_QUEUE_AGE_SOURCE_MONOTONIC
+);
+assert.equal(decision.timestampSource, "transport_queue_age");
+assert.equal(decision.receivedAt, "2026-07-17T12:00:00.000Z");
+assert.equal(decision.processedTimestamp, "2026-07-17T11:30:00.000Z");
+assert.equal(decision.historicalTimestamp, "2026-07-17T11:30:00.000Z");
+assert.equal(decision.transportCapturedAt, "2026-07-17T11:30:00.000Z");
+assert.equal(decision.clientQueueAgeMs, 30 * 60 * 1000);
+assert.equal(decision.clientQueueAgeSource, CLIENT_QUEUE_AGE_SOURCE_MONOTONIC);
+assert.equal(decision.queueAgeTrusted, true);
+assert.equal(decision.liveEligible, true);
+assert.equal(decision.discardReason, null);
+
+// Una edad legacy sin fuente ya no puede fingir ser monotónica. Si el timestamp
+// es historico/sesgado se conserva para Jornada pero queda fuera del pin vivo.
 decision = normalizeTrackingTime(
   "2026-07-17T10:00:00.000Z",
   receivedAt,
   30 * 60 * 1000
 );
-assert.equal(decision.timestampSource, "transport_queue_age");
-assert.equal(decision.receivedAt, "2026-07-17T12:00:00.000Z");
-assert.equal(decision.processedTimestamp, "2026-07-17T11:30:00.000Z");
-assert.equal(decision.transportCapturedAt, "2026-07-17T11:30:00.000Z");
-assert.equal(decision.clientQueueAgeMs, 30 * 60 * 1000);
-assert.equal(decision.discardReason, null);
+assert.equal(decision.clientQueueAgeSource, CLIENT_QUEUE_AGE_SOURCE_LEGACY);
+assert.equal(decision.queueAgeTrusted, false);
+assert.equal(decision.liveEligible, false);
+assert.equal(decision.timestampSource, "client_untrusted_history");
+assert.equal(decision.processedTimestamp, "2026-07-17T10:00:00.000Z");
+assert.equal(decision.historicalTimestamp, "2026-07-17T10:00:00.000Z");
+assert.equal(decision.transportCapturedAt, null);
+assert.equal(decision.discardReason, "client_clock_behind");
 
-// Queue age is independent from the phone wall clock: a wildly skewed device
-// with an immediate upload remains an immediate capture on the server timeline.
-decision = normalizeTrackingTime("2026-07-16T12:00:00.000Z", receivedAt, 0);
-assert.equal(decision.timestampSource, "transport_queue_age");
-assert.equal(decision.processedTimestamp, receivedAt.toISOString());
-assert.equal(decision.clientQueueAgeMs, 0);
+// Compatibilidad inmediata: Android actual manda clientQueueAgeMs aun sin fuente.
+// Mientras el timestamp este dentro del skew, ese paquete sigue siendo live.
+decision = normalizeTrackingTime(
+  "2026-07-17T11:59:59.000Z",
+  receivedAt,
+  1000
+);
+assert.equal(decision.clientQueueAgeSource, CLIENT_QUEUE_AGE_SOURCE_LEGACY);
+assert.equal(decision.timestampSource, "client");
+assert.equal(decision.liveEligible, true);
+assert.equal(decision.processedTimestamp, "2026-07-17T11:59:59.000Z");
 
-// Without an explicit elapsed queue age, legacy/skewed clients retain the
-// server-receipt authority instead of trusting their wall clock.
+// Un fallback de wall clock se trata igual: util como compatibilidad, no como
+// prueba monotónica para reconstruir un backlog con reloj sospechoso.
+decision = normalizeTrackingTime(
+  "2026-07-17T11:00:00.000Z",
+  receivedAt,
+  60 * 60 * 1000,
+  CLIENT_QUEUE_AGE_SOURCE_WALL_CLOCK
+);
+assert.equal(decision.clientQueueAgeSource, CLIENT_QUEUE_AGE_SOURCE_WALL_CLOCK);
+assert.equal(decision.queueAgeTrusted, false);
+assert.equal(decision.liveEligible, false);
+assert.equal(decision.timestampSource, "client_untrusted_history");
+
+// Un source desconocido falla cerrado como legacy_unverified.
+decision = normalizeTrackingTime(
+  "2026-07-17T11:00:00.000Z",
+  receivedAt,
+  60 * 60 * 1000,
+  "inventado"
+);
+assert.equal(decision.clientQueueAgeSource, CLIENT_QUEUE_AGE_SOURCE_LEGACY);
+assert.equal(decision.liveEligible, false);
+
+// Sin edad de cola, un cliente legacy/sesgado conserva la recepcion servidor.
 decision = normalizeTrackingTime("2026-07-16T12:00:00.000Z", receivedAt);
 assert.equal(decision.timestampSource, "server");
 assert.equal(decision.processedTimestamp, receivedAt.toISOString());
 assert.equal(decision.discardReason, "client_clock_behind");
+assert.equal(decision.liveEligible, true);
 
-// Malicious/invalid giant ages are bounded to the native queue retention policy.
+// Edades gigantes siguen acotadas al horizonte existente; incluso una fuente
+// monotónica no puede declarar mas historia que la politica de retencion.
 decision = normalizeTrackingTime(
   "2026-07-17T11:59:59.000Z",
   receivedAt,
-  MAX_CLIENT_QUEUE_AGE_MS * 10
+  MAX_CLIENT_QUEUE_AGE_MS * 10,
+  CLIENT_QUEUE_AGE_SOURCE_MONOTONIC
 );
 assert.equal(decision.clientQueueAgeMs, MAX_CLIENT_QUEUE_AGE_MS);
+assert.equal(decision.queueAgeTrusted, true);
 
-// `buildGpsFreshness` ya no mantiene una escalera propia de 120 s: delega en
-// `domain/gps-telemetry-state.js`. Antes la misma unidad podia salir "fresh" por
-// REST y "stale" por el snapshot operacional en el mismo instante.
+// `buildGpsFreshness` no mantiene una escalera propia: delega en la autoridad
+// 8/15/30 de `domain/gps-telemetry-state.js`. Este cambio temporal no la toca.
 const vehicleAt = (isoTimestamp) => ({
   location: { latitude: 19.43, longitude: -99.13 },
   locationTimestamp: isoTimestamp,
