@@ -62,6 +62,17 @@ if (errors.length === 0) {
     fail('system-audit-gates baseline.commit must be a full 40-character Git SHA.');
   }
 
+  const authorityReviewBaseline = String(contract.authorityReview?.commit || '').trim();
+  if (!/^[a-f0-9]{40}$/.test(authorityReviewBaseline)) {
+    fail('system-audit-gates authorityReview.commit must be a full 40-character Git SHA.');
+  }
+  if (!String(contract.authorityReview?.capturedAt || '').trim()) {
+    fail('system-audit-gates authorityReview.capturedAt must be present.');
+  }
+  if (!String(contract.authorityReview?.phase || '').trim()) {
+    fail('system-audit-gates authorityReview.phase must be present.');
+  }
+
   const gateIds = Array.isArray(contract.requiredGates)
     ? contract.requiredGates.map((gate) => String(gate?.id || '').trim())
     : [];
@@ -136,29 +147,38 @@ if (errors.length === 0) {
   }
 
   const authorityDocument = JSON.parse(fs.readFileSync(authorityPath, 'utf8'));
-  const authorityBaseline = String(authorityDocument.baseline?.commit || '').trim();
-  if (/^[a-f0-9]{40}$/.test(authorityBaseline)) {
+  const authorityDocumentBaseline = String(authorityDocument.baseline?.commit || '').trim();
+  if (/^[a-f0-9]{40}$/.test(authorityDocumentBaseline) && /^[a-f0-9]{40}$/.test(authorityReviewBaseline)) {
     try {
-      git('merge-base', '--is-ancestor', authorityBaseline, freshnessRef);
-      const authorityDrift = commitDrift(authorityBaseline, freshnessRef);
+      git('merge-base', '--is-ancestor', authorityDocumentBaseline, authorityReviewBaseline);
+    } catch {
+      fail(
+        `Authority review baseline ${authorityReviewBaseline} does not descend from the authority map provenance ` +
+        `${authorityDocumentBaseline}. Run a dedicated semantic authority reconciliation.`
+      );
+    }
+
+    try {
+      git('merge-base', '--is-ancestor', authorityReviewBaseline, freshnessRef);
+      const authorityDrift = commitDrift(authorityReviewBaseline, freshnessRef);
       if (authorityDrift > maxAuthorityMapDrift) {
         fail(
-          `System authority map is ${authorityDrift} commits behind ${freshnessRef} ` +
+          `System authority review is ${authorityDrift} commits behind ${freshnessRef} ` +
           `(max ${maxAuthorityMapDrift}). Refresh the semantic authority audit before merge.`
         );
       } else {
         console.log(
-          `System authority map drift vs ${freshnessRef}: ${authorityDrift}/${maxAuthorityMapDrift} commits.`
+          `System authority review drift vs ${freshnessRef}: ${authorityDrift}/${maxAuthorityMapDrift} commits.`
         );
       }
     } catch {
       fail(
-        `System authority map baseline is not an ancestor of ${freshnessRef}. ` +
+        `System authority review baseline is not an ancestor of ${freshnessRef}. ` +
         'Run a dedicated semantic authority reconciliation before merge.'
       );
     }
   } else {
-    fail('system-authorities baseline.commit is not a full Git SHA.');
+    fail('system-authorities baseline.commit and authorityReview.commit must be full Git SHAs.');
   }
 }
 
