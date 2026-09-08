@@ -23,7 +23,31 @@ function normalizeClientQueueAge(value) {
   return Math.min(MAX_CLIENT_QUEUE_AGE_MS, Math.round(parsed));
 }
 
-function normalizeTrackingTime(clientTimestamp, receivedAt = new Date(), clientQueueAgeMs = null) {
+function normalizeClientQueueAgeSource(value, hasQueueAge) {
+  if (!hasQueueAge) return null;
+  return String(value || "").trim().toLowerCase() === "monotonic" ? "monotonic" : "legacy_wall_clock";
+}
+
+/**
+ * Decide dos tiempos distintos porque una posicion offline cumple dos funciones:
+ *
+ * - `processedTimestamp`: puede gobernar la proyeccion viva SOLO cuando su
+ *   evidencia temporal es segura.
+ * - `historyTimestamp`: conserva la mejor evidencia disponible para Jornada e
+ *   historial incluso si la cola legacy no puede demostrar una duracion
+ *   monotona.
+ *
+ * Un `clientQueueAgeMs` sin `clientQueueAgeSource=monotonic` nunca se considera
+ * una duracion confiable. Clientes legacy que reportan una posicion actual aun
+ * pueden actualizar live mediante su `timestamp` si cae dentro del skew normal;
+ * un backlog antiguo se vuelve history-only en la capa de ingestion.
+ */
+function normalizeTrackingTime(
+  clientTimestamp,
+  receivedAt = new Date(),
+  clientQueueAgeMs = null,
+  clientQueueAgeSource = null
+) {
   const received = new Date(receivedAt);
   const safeReceived = Number.isNaN(received.getTime()) ? new Date() : received;
   const parsedClient = clientTimestamp ? new Date(clientTimestamp) : null;
@@ -32,31 +56,63 @@ function normalizeTrackingTime(clientTimestamp, receivedAt = new Date(), clientQ
   const withinAcceptedSkew = skewMs !== null && Math.abs(skewMs) <= MAX_CLIENT_CLOCK_SKEW_MS;
   const normalizedQueueAgeMs = normalizeClientQueueAge(clientQueueAgeMs);
   const hasTransportQueueAge = normalizedQueueAgeMs !== null;
-  const transportCapturedAt = hasTransportQueueAge
+  const normalizedQueueAgeSource = normalizeClientQueueAgeSource(clientQueueAgeSource, hasTransportQueueAge);
+  const queueAgeTrusted = hasTransportQueueAge && normalizedQueueAgeSource === "monotonic";
+  const transportCapturedAt = queueAgeTrusted
     ? new Date(safeReceived.getTime() - normalizedQueueAgeMs)
     : null;
+
+  const clientAgeMs = hasValidClientTime ? safeReceived.getTime() - parsedClient.getTime() : null;
+  const hasBoundedHistoricalClientTime =
+    clientAgeMs !== null && clientAgeMs >= 0 && clientAgeMs <= MAX_CLIENT_QUEUE_AGE_MS;
+  const historyTimestamp = queueAgeTrusted
+    ? transportCapturedAt
+    : hasTransportQueueAge && hasBoundedHistoricalClientTime
+      ? parsedClient
+      : withinAcceptedSkew
+        ? parsedClient
+        : safeReceived;
+  const processedTimestamp = queueAgeTrusted
+    ? transportCapturedAt
+    : withinAcceptedSkew
+      ? parsedClient
+      : safeReceived;
+  const shouldApplyLiveProjection =
+    !hasTransportQueueAge || queueAgeTrusted || withinAcceptedSkew;
+
+  let discardReason = null;
+  if (clientTimestamp && !hasValidClientTime) {
+    discardReason = "invalid_client_timestamp";
+  } else if (hasTransportQueueAge && !queueAgeTrusted && !withinAcceptedSkew) {
+    discardReason = "untrusted_client_queue_age";
+  } else if (!queueAgeTrusted && skewMs !== null && !withinAcceptedSkew) {
+    discardReason = skewMs > 0 ? "client_clock_ahead" : "client_clock_behind";
+  }
 
   return {
     clientTimestamp: hasValidClientTime ? parsedClient.toISOString() : null,
     receivedAt: safeReceived.toISOString(),
-    processedTimestamp: hasTransportQueueAge
-      ? transportCapturedAt.toISOString()
-      : withinAcceptedSkew
-        ? parsedClient.toISOString()
-        : safeReceived.toISOString(),
+    processedTimestamp: processedTimestamp.toISOString(),
+    historyTimestamp: historyTimestamp.toISOString(),
     transportCapturedAt: transportCapturedAt ? transportCapturedAt.toISOString() : null,
     clientQueueAgeMs: normalizedQueueAgeMs,
+    clientQueueAgeSource: normalizedQueueAgeSource,
+    queueAgeTrusted,
+    shouldApplyLiveProjection,
     clockSkewMs: skewMs,
-    timestampSource: hasTransportQueueAge
+    timestampSource: queueAgeTrusted
       ? "transport_queue_age"
       : withinAcceptedSkew
         ? "client"
         : "server",
-    discardReason: clientTimestamp && !hasValidClientTime
-      ? "invalid_client_timestamp"
-      : !hasTransportQueueAge && skewMs !== null && !withinAcceptedSkew
-        ? (skewMs > 0 ? "client_clock_ahead" : "client_clock_behind")
-        : null
+    historyTimestampSource: queueAgeTrusted
+      ? "transport_queue_age"
+      : hasTransportQueueAge && hasBoundedHistoricalClientTime
+        ? "client_queue_timestamp"
+        : withinAcceptedSkew
+          ? "client"
+          : "server",
+    discardReason
   };
 }
 
@@ -133,6 +189,7 @@ module.exports = {
   MAX_CLIENT_QUEUE_AGE_MS,
   buildGpsFreshness,
   normalizeClientQueueAge,
+  normalizeClientQueueAgeSource,
   normalizeTrackingTime,
   resolveSessionStartedAt
 };
