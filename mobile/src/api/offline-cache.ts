@@ -23,6 +23,31 @@ const QUEUE_KEY = 'manecomb:pending-sync:v1';
 const MAX_QUEUE_ITEMS = 2000;
 const MAX_LOCATION_QUEUE_AGE_MS = 24 * 60 * 60 * 1000;
 
+function createRuntimeId() {
+  if (typeof globalThis !== 'undefined' && typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return `runtime:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+}
+
+const QUEUE_RUNTIME_ID = createRuntimeId();
+
+function getMonotonicNowMs() {
+  const value = globalThis.performance?.now?.();
+  return Number.isFinite(value) ? Number(value) : null;
+}
+
+type QueueClockEvidence = {
+  runtimeId: string;
+  monotonicCreatedAtMs: number;
+};
+
+function createQueueClockEvidence(): QueueClockEvidence | undefined {
+  const monotonicCreatedAtMs = getMonotonicNowMs();
+  if (monotonicCreatedAtMs === null) return undefined;
+  return { runtimeId: QUEUE_RUNTIME_ID, monotonicCreatedAtMs };
+}
+
 export type OfflineCacheSnapshot = {
   savedAt: string;
   authContext: AuthRoutingContext | null;
@@ -144,6 +169,7 @@ export type PendingSyncOperation =
       type: 'vehicle:location';
       createdAt: string;
       attempts: number;
+      queueClock?: QueueClockEvidence;
       payload: {
         vehicleId: string;
         coordinates: GeoPoint & {
@@ -158,6 +184,7 @@ export type PendingSyncOperation =
         packetId?: string | null;
         sessionId?: string | null;
         clientQueueAgeMs?: number | null;
+        clientQueueAgeSource?: 'monotonic' | 'wall_clock';
       };
     };
 
@@ -180,21 +207,33 @@ function createOperationId(type: string) {
 export function hydratePendingSyncOperationForReplay(
   operation: PendingSyncOperation,
   nowMs = Date.now(),
+  monotonicNowMs = getMonotonicNowMs(),
+  runtimeId = QUEUE_RUNTIME_ID,
 ): PendingSyncOperation {
   if (operation.type !== 'vehicle:location') {
     return operation;
   }
 
   const createdAtMs = new Date(operation.createdAt).getTime();
-  const elapsedMs = Number.isFinite(createdAtMs)
+  const wallElapsedMs = Number.isFinite(createdAtMs)
     ? Math.min(MAX_LOCATION_QUEUE_AGE_MS, Math.max(0, nowMs - createdAtMs))
     : 0;
+  const monotonicCreatedAtMs = Number(operation.queueClock?.monotonicCreatedAtMs);
+  const hasMonotonicContinuity =
+    operation.queueClock?.runtimeId === runtimeId
+    && monotonicNowMs !== null
+    && Number.isFinite(monotonicCreatedAtMs)
+    && monotonicNowMs >= monotonicCreatedAtMs;
+  const elapsedMs = hasMonotonicContinuity
+    ? Math.min(MAX_LOCATION_QUEUE_AGE_MS, Math.max(0, monotonicNowMs - monotonicCreatedAtMs))
+    : wallElapsedMs;
 
   return {
     ...operation,
     payload: {
       ...operation.payload,
-      clientQueueAgeMs: elapsedMs,
+      clientQueueAgeMs: Math.round(elapsedMs),
+      clientQueueAgeSource: hasMonotonicContinuity ? 'monotonic' : 'wall_clock',
     },
   };
 }
@@ -332,14 +371,15 @@ export async function clearOfflineCache() {
 }
 
 export async function loadPendingSyncQueue() {
-  // Una lectura pública observa únicamente un estado ya confirmado. No debe
-  // adelantar una mutación en vuelo y reportar un pendingSyncCount obsoleto.
-  // Para GPS, la misma lectura es el boundary de replay: deriva edad de cola a
-  // partir de `createdAt` justo antes de enviar, sin confiar en el reloj servidor
-  // ni congelar la edad dentro del payload persistido.
+  // Una lectura publica observa un estado ya confirmado. Para GPS, el replay
+  // conserva la evidencia monotona solo si sigue dentro del mismo runtime JS;
+  // tras process death/restart degrada explicitamente a wall_clock.
   const queue = await serializePendingSyncMutation(readPendingSyncQueueUnsafe);
   const nowMs = Date.now();
-  return queue.map((operation) => hydratePendingSyncOperationForReplay(operation, nowMs));
+  const monotonicNowMs = getMonotonicNowMs();
+  return queue.map((operation) =>
+    hydratePendingSyncOperationForReplay(operation, nowMs, monotonicNowMs, QUEUE_RUNTIME_ID)
+  );
 }
 
 export async function savePendingSyncQueue(queue: PendingSyncOperation[]) {
@@ -355,6 +395,7 @@ export async function enqueuePendingSyncOperation(
     const queue = await readPendingSyncQueueUnsafe();
     const nextOperation = sanitizePendingSyncOperation({
       ...operation,
+      ...(operation.type === 'vehicle:location' ? { queueClock: createQueueClockEvidence() } : {}),
       id: createOperationId(operation.type),
       createdAt: new Date().toISOString(),
       attempts: 0,
