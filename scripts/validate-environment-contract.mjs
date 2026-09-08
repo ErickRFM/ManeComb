@@ -85,8 +85,7 @@ const ventas = requireKeys('ventas/.env.example', [
 ]);
 const mobile = requireKeys('mobile/.env.example', [
   'MANECOMB_APP_ENV', 'MANECOMB_API_URL', 'MANECOMB_SOCKET_URL',
-  'MANECOMB_API_TIMEOUT_MS', 'MANECOMB_GOOGLE_MAPS_API_KEY',
-  'MANECOMB_ANDROID_CLEARTEXT'
+  'MANECOMB_API_TIMEOUT_MS', 'MANECOMB_ANDROID_CLEARTEXT'
 ]);
 const admin = requireKeys('admin-global/.env.example', [
   'API_PORT', 'VITE_API_URL', 'VITE_PLATFORM_ACCESS_REQUIRED',
@@ -112,6 +111,11 @@ if (backend.get('CLIENT_ORIGIN')?.includes('*') && !backend.get('CLIENT_ORIGIN')
 for (const requiredOrigin of ['https://admin.manecomb.com', 'http://localhost:5174']) {
   if (!backend.get('CLIENT_ORIGIN')?.includes(requiredOrigin)) {
     fail(`backend/.env.example: CLIENT_ORIGIN debe incluir ${requiredOrigin}`);
+  }
+}
+for (const retiredFile of ['backend/.env.example', 'mobile/.env.example', 'mobile/README.md']) {
+  if (/\b(?:MANECOMB_)?GOOGLE_MAPS_API_KEY\b/.test(read(retiredFile))) {
+    fail(`${retiredFile}: Google Maps ya no forma parte del contrato; Mapbox es la autoridad cartografica`);
   }
 }
 if (admin.get('VITE_API_URL') !== 'https://admin.manecomb.com') {
