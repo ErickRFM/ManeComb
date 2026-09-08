@@ -78,13 +78,14 @@ describe('cola offline de Control', () => {
     ]);
   });
 
-  it('deriva edad de transporte al reproducir una ubicacion offline', () => {
+  it('usa duracion monotona aunque el wall clock salte hacia atras', () => {
     const queuedAt = Date.parse('2026-08-10T07:00:00.000Z');
     const operation: PendingSyncOperation = {
       id: 'vehicle:location:test',
       type: 'vehicle:location',
       createdAt: new Date(queuedAt).toISOString(),
       attempts: 0,
+      queueClock: { runtimeId: 'runtime-a', monotonicCreatedAtMs: 10_000 },
       payload: {
         vehicleId: 'vehicle-101',
         coordinates: { latitude: 19.31, longitude: -98.24 },
@@ -92,17 +93,74 @@ describe('cola offline de Control', () => {
       },
     };
 
-    const replay = hydratePendingSyncOperationForReplay(operation, queuedAt + 30 * 60 * 1000);
+    // Wall clock retrocede 15 minutos, pero elapsedRealtime avanza 30.
+    const replay = hydratePendingSyncOperationForReplay(
+      operation,
+      queuedAt - 15 * 60 * 1000,
+      10_000 + 30 * 60 * 1000,
+      'runtime-a',
+    );
     expect(replay.type).toBe('vehicle:location');
     if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
     expect(replay.payload.clientQueueAgeMs).toBe(30 * 60 * 1000);
+    expect(replay.payload.clientQueueAgeSource).toBe('monotonic');
     expect(replay.payload.timestamp).toBe(operation.payload.timestamp);
   });
 
-  it('acota edad GPS al mismo horizonte de retencion de 24 horas', () => {
-    const queuedAt = Date.parse('2026-08-09T07:00:00.000Z');
+  it('usa duracion monotona aunque el wall clock salte hacia adelante', () => {
+    const queuedAt = Date.parse('2026-08-10T07:00:00.000Z');
     const operation: PendingSyncOperation = {
-      id: 'vehicle:location:max-age',
+      id: 'vehicle:location:clock-forward',
+      type: 'vehicle:location',
+      createdAt: new Date(queuedAt).toISOString(),
+      attempts: 0,
+      queueClock: { runtimeId: 'runtime-a', monotonicCreatedAtMs: 2_000 },
+      payload: {
+        vehicleId: 'vehicle-101',
+        coordinates: { latitude: 19.31, longitude: -98.24 },
+      },
+    };
+
+    const replay = hydratePendingSyncOperationForReplay(
+      operation,
+      queuedAt + 45 * 60 * 1000,
+      2_000 + 10 * 60 * 1000,
+      'runtime-a',
+    );
+    if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
+    expect(replay.payload.clientQueueAgeMs).toBe(10 * 60 * 1000);
+    expect(replay.payload.clientQueueAgeSource).toBe('monotonic');
+  });
+
+  it('degrada a wall_clock tras process death en vez de fingir continuidad monotona', () => {
+    const queuedAt = Date.parse('2026-08-10T07:00:00.000Z');
+    const operation: PendingSyncOperation = {
+      id: 'vehicle:location:process-death',
+      type: 'vehicle:location',
+      createdAt: new Date(queuedAt).toISOString(),
+      attempts: 0,
+      queueClock: { runtimeId: 'runtime-before-death', monotonicCreatedAtMs: 4_000 },
+      payload: {
+        vehicleId: 'vehicle-101',
+        coordinates: { latitude: 19.31, longitude: -98.24 },
+      },
+    };
+
+    const replay = hydratePendingSyncOperationForReplay(
+      operation,
+      queuedAt + 20 * 60 * 1000,
+      9_000,
+      'runtime-after-death',
+    );
+    if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
+    expect(replay.payload.clientQueueAgeMs).toBe(20 * 60 * 1000);
+    expect(replay.payload.clientQueueAgeSource).toBe('wall_clock');
+  });
+
+  it('marca las colas persistidas legacy como wall_clock', () => {
+    const queuedAt = Date.parse('2026-08-10T07:00:00.000Z');
+    const operation: PendingSyncOperation = {
+      id: 'vehicle:location:legacy',
       type: 'vehicle:location',
       createdAt: new Date(queuedAt).toISOString(),
       attempts: 0,
@@ -111,10 +169,40 @@ describe('cola offline de Control', () => {
         coordinates: { latitude: 19.31, longitude: -98.24 },
       },
     };
-    const replay = hydratePendingSyncOperationForReplay(operation, queuedAt + 48 * 60 * 60 * 1000);
+    const replay = hydratePendingSyncOperationForReplay(
+      operation,
+      queuedAt + 12 * 60 * 1000,
+      12 * 60 * 1000,
+      'new-runtime',
+    );
+    if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
+    expect(replay.payload.clientQueueAgeMs).toBe(12 * 60 * 1000);
+    expect(replay.payload.clientQueueAgeSource).toBe('wall_clock');
+  });
+
+  it('acota edad GPS monotona al mismo horizonte de retencion de 24 horas', () => {
+    const queuedAt = Date.parse('2026-08-09T07:00:00.000Z');
+    const operation: PendingSyncOperation = {
+      id: 'vehicle:location:max-age',
+      type: 'vehicle:location',
+      createdAt: new Date(queuedAt).toISOString(),
+      attempts: 0,
+      queueClock: { runtimeId: 'runtime-a', monotonicCreatedAtMs: 0 },
+      payload: {
+        vehicleId: 'vehicle-101',
+        coordinates: { latitude: 19.31, longitude: -98.24 },
+      },
+    };
+    const replay = hydratePendingSyncOperationForReplay(
+      operation,
+      queuedAt + 48 * 60 * 60 * 1000,
+      48 * 60 * 60 * 1000,
+      'runtime-a',
+    );
     expect(replay.type).toBe('vehicle:location');
     if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
     expect(replay.payload.clientQueueAgeMs).toBe(24 * 60 * 60 * 1000);
+    expect(replay.payload.clientQueueAgeSource).toBe('monotonic');
   });
 
   it('no pierde acciones cuando varias se encolan al mismo tiempo', async () => {
