@@ -1,0 +1,47 @@
+name: Temporary Mobile js-yaml lock refresh
+
+on:
+  push:
+    branches:
+      - fix/gps-queue-time-authority-current
+
+permissions:
+  contents: write
+
+concurrency:
+  group: temp-mobile-js-yaml-lock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  refresh-lock:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v5
+        with:
+          ref: fix/gps-queue-time-authority-current
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Pin patched js-yaml and refresh lock
+        working-directory: mobile
+        run: |
+          npm pkg set 'overrides.js-yaml=4.3.2'
+          npm install --package-lock-only --ignore-scripts
+          node -e "const l=require('./package-lock.json'); if(l.packages?.['node_modules/js-yaml']?.version !== '4.3.2') process.exit(1)"
+
+      - name: Commit generated lock and remove temporary workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mobile/package.json mobile/package-lock.json
+          git rm .github/workflows/temp-mobile-js-yaml-lock.yml
+          git commit -m 'fix(deps): pin patched js-yaml 4.3.2'
+          git push origin HEAD:fix/gps-queue-time-authority-current
