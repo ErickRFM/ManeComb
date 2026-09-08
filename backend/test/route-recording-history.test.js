@@ -160,8 +160,8 @@ async function testOfflineJourneyKeepsHistoryAfterReconciliation() {
     );
 
     const actor = context.store.getUserById("user-driver-01");
-    // Los puntos encolados viajan con el id LOCAL `pending:{vehicleId}` y con
-    // timestamps de captura reconstruidos por la edad de cola.
+    // Los puntos encolados viajan con el id LOCAL `pending:{vehicleId}` y una
+    // edad certificada como monotona por el productor actual.
     let accepted = 0;
     for (let index = 0; index < 8; index += 1) {
       const capturedAt = new Date(offlineStartedAt.getTime() + (index + 1) * 60 * 1000);
@@ -175,6 +175,7 @@ async function testOfflineJourneyKeepsHistoryAfterReconciliation() {
           coordinates: { latitude: 19.415 + index * 0.002, longitude: -99.073 + index * 0.002 },
           timestamp: capturedAt.toISOString(),
           clientQueueAgeMs: reconnectedAt.getTime() - capturedAt.getTime(),
+          clientQueueAgeSource: "monotonic",
           accuracy: 7,
           packetId: `offline-packet-${index}`,
           sessionId: `pending:${VEHICLE_ID}`
@@ -183,7 +184,7 @@ async function testOfflineJourneyKeepsHistoryAfterReconciliation() {
       if (result.accepted) accepted += 1;
     }
 
-    assert.equal(accepted, 8, "los paquetes de la cola offline deben aceptarse");
+    assert.equal(accepted, 8, "los paquetes con edad monotona deben poder actualizar su orden temporal");
     const persisted = positionsOf(context.store, session.id);
     assert.equal(
       persisted.length,
@@ -203,6 +204,72 @@ async function testOfflineJourneyKeepsHistoryAfterReconciliation() {
     );
 
     console.log("ok - jornada offline reconciliada conserva todo su historial");
+  } finally {
+    await context.close();
+  }
+}
+
+// --- Cola legacy: historia si, live no ---------------------------------------
+async function testLegacyWallClockBacklogCannotReplaceLiveProjection() {
+  const context = await createContext();
+  try {
+    const started = await post(context, "/navigation/sessions/start", { vehicleId: VEHICLE_ID });
+    assert.equal(started.status, 201);
+    const session = started.data.data;
+    const actor = context.store.getUserById("user-driver-01");
+
+    const liveTimestamp = new Date(Date.now() - 2_000).toISOString();
+    const live = await ingestVehicleLocation({
+      actor,
+      io: fakeIo(),
+      store: context.store,
+      transport: "http",
+      payload: {
+        vehicleId: VEHICLE_ID,
+        coordinates: { latitude: 19.50, longitude: -99.10 },
+        timestamp: liveTimestamp,
+        packetId: "live-before-legacy-backlog",
+        sessionId: session.id
+      }
+    });
+    assert.equal(live.accepted, true);
+    const liveVehicle = await context.store.getVehicleById(VEHICLE_ID);
+    const liveLocationTimestamp = liveVehicle.locationTimestamp;
+
+    const backlogTimestamp = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+    const backlog = await ingestVehicleLocation({
+      actor,
+      io: fakeIo(),
+      store: context.store,
+      transport: "http",
+      payload: {
+        vehicleId: VEHICLE_ID,
+        coordinates: { latitude: 19.40, longitude: -99.00 },
+        timestamp: backlogTimestamp,
+        // Simula cliente legacy/reloj corregido: reporta edad 0 sin una fuente
+        // monotona demostrable. Antes esto rejuvenecia el backlog a "ahora".
+        clientQueueAgeMs: 0,
+        packetId: "legacy-wall-clock-backlog",
+        sessionId: session.id
+      }
+    });
+
+    assert.equal(backlog.accepted, false);
+    assert.equal(backlog.decision, "untrusted_queue_history_only");
+    assert.equal(backlog.temporal.queueAgeTrusted, false);
+    assert.equal(backlog.temporal.historyTimestamp, backlogTimestamp);
+    const afterBacklog = await context.store.getVehicleById(VEHICLE_ID);
+    assert.equal(afterBacklog.locationTimestamp, liveLocationTimestamp,
+      "backlog legacy no puede cambiar el timestamp vivo");
+    assert.deepEqual(afterBacklog.location, liveVehicle.location,
+      "backlog legacy no puede reemplazar la coordenada viva");
+
+    const persisted = positionsOf(context.store, session.id)
+      .filter((position) => position.packetId === "legacy-wall-clock-backlog");
+    assert.equal(persisted.length, 1, "la evidencia legacy sigue llegando al historial de Jornada");
+    assert.equal(new Date(persisted[0].timestamp).toISOString(), backlogTimestamp);
+
+    console.log("ok - backlog wall-clock legacy queda history-only y no rejuvenece live");
   } finally {
     await context.close();
   }
@@ -289,6 +356,7 @@ async function testHistoricalPendingPacketPrefersFinishedSession() {
       coordinates: { latitude: 19.421, longitude: -99.081 },
       timestamp: capturedAt,
       clientQueueAgeMs: now - new Date(capturedAt).getTime(),
+      clientQueueAgeSource: "monotonic",
       accuracy: 6,
       packetId: "historical-pending-packet",
       sessionId: `pending:${VEHICLE_ID}`
@@ -316,6 +384,7 @@ async function main() {
   testStartedAtPolicy();
   await testFreeRouteRecordingPersistsHistory();
   await testOfflineJourneyKeepsHistoryAfterReconciliation();
+  await testLegacyWallClockBacklogCannotReplaceLiveProjection();
   await testQueueReplayIsIdempotent();
   await testHistoricalPendingPacketPrefersFinishedSession();
   console.log("ok - historial de recorrido certificado con y sin Internet");
