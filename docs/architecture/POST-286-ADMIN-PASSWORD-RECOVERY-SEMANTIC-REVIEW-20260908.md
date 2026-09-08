@@ -22,7 +22,17 @@ La recuperación de contraseña agrega dos operaciones públicas del namespace P
 
 ## Dependencias de seguridad detectadas al cerrar PR #289
 
-Los gates de dependencias detectaron advisories recientes en `morgan`, `multer`, `qs` y `nodemailer`. Se exige resolverlos con versiones parchadas compatibles antes de integrar PR #289; no se acepta silenciar ni relajar el gate.
+Los gates de dependencias detectaron advisories recientes y se resolvieron sin relajar CI:
+
+- `morgan` se actualizó a `^1.12.0`;
+- `multer` se actualizó a `^2.3.0`;
+- el lock de backend fue reparado por `npm audit fix --package-lock-only` para retirar los advisories transitivos aplicables, incluido `qs`;
+- `nodemailer` se actualizó a `^9.1.1` dentro de `communication-service`, preservando compatibilidad con la línea Node >=18 declarada por el paquete;
+- ambos árboles pasaron `npm audit --omit=dev --audit-level=high` después de la actualización.
+
+## Gate físico
+
+La PR no modifica runtime móvil, sensores, GPS, radio, permisos nativos ni hardware. La certificación física se declara `N/A`; el cambio es web/backend/correo y se valida mediante los gates de Admin Global, backend, integración y seguridad.
 
 ## Resultado
 
@@ -32,7 +42,8 @@ PLATFORM_IDENTITY_REMAINS_BACKEND_AUTHORITATIVE
 PASSWORD_RECOVERY_DOES_NOT_BYPASS_MFA
 PASSWORD_RESET_INVALIDATES_OLD_PLATFORM_SESSIONS
 CLOUDFLARE_REMAINS_TRANSPORT_ONLY
-DEPENDENCY_ADVISORIES_MUST_BE_PATCHED_BEFORE_MERGE
+DEPENDENCY_ADVISORIES_PATCHED_WITHOUT_RELAXING_GATES
+PHYSICAL_GATE_NOT_APPLICABLE_TO_WEB_BACKEND_ONLY_CHANGE
 ```
 
 Se refrescan `baseline.commit` y `authorityReview.commit` a `main@3eaf9adf3a88004b5d98fd8d3c009f154bcbb532` sin ampliar los límites de drift (`5`).
