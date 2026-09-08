@@ -22,6 +22,16 @@ export async function platformLoginRequest(email: string, password: string) {
   return data.data as import('./types').AdminLoginResponse;
 }
 
+export async function platformForgotPasswordRequest(email: string) {
+  const { data } = await platformApi.post('/forgot-password', { email });
+  return data.data as { message: string };
+}
+
+export async function platformResetPasswordRequest(token: string, password: string) {
+  const { data } = await platformApi.post('/reset-password', { token, password });
+  return data.data as { message: string; revokedCount: number };
+}
+
 export async function platformRefreshRequest(refreshToken: string) {
   const refreshRequestId = createRefreshRequestId();
   let lastError: unknown = null;

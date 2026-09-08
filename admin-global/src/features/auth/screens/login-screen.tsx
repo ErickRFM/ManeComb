@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Redirect } from '@/components/router';
+import { Link, Redirect } from '@/components/router';
 import { useAdminStore } from '../store';
 import { AdminAuthLayout } from '../components/auth-layout';
 import { AdminLoginGuard } from '../components/route-guard';
@@ -57,7 +57,10 @@ export function AdminLoginScreen() {
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.fieldLabel}>Contraseña</Text>
+          <View style={styles.passwordHeader}>
+            <Text style={styles.fieldLabel}>Contraseña</Text>
+            <Link href="/admin/forgot-password" style={styles.recoveryLink}>¿Olvidaste tu contraseña?</Link>
+          </View>
           <View style={styles.inputShell}>
             <TextInput
               accessibilityLabel="Contraseña"
@@ -128,6 +131,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   field: { gap: 8 },
+  passwordHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  recoveryLink: {
+    color: '#F4A0A0',
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
   fieldLabel: {
     color: 'rgba(248, 250, 252, 0.82)',
     fontFamily: Typography.body,

@@ -6,6 +6,8 @@ import { useAdminStore } from '@/features/auth/store';
 import { ScreenErrorBoundary } from '@/components/screen-error-boundary';
 
 const AdminLoginScreen = lazy(() => import('@/features/auth/screens/login-screen').then((module) => ({ default: module.AdminLoginScreen })));
+const AdminForgotPasswordScreen = lazy(() => import('@/features/auth/screens/password-recovery-screens').then((module) => ({ default: module.AdminForgotPasswordScreen })));
+const AdminResetPasswordScreen = lazy(() => import('@/features/auth/screens/password-recovery-screens').then((module) => ({ default: module.AdminResetPasswordScreen })));
 const AdminMfaSetupScreen = lazy(() => import('@/features/auth/screens/mfa-setup-screen').then((module) => ({ default: module.AdminMfaSetupScreen })));
 const AdminMfaVerifyScreen = lazy(() => import('@/features/auth/screens/mfa-verify-screen').then((module) => ({ default: module.AdminMfaVerifyScreen })));
 const AdminOverviewScreen = lazy(() => import('@/features/platform/screens/overview-screen').then((module) => ({ default: module.AdminOverviewScreen })));
@@ -62,6 +64,10 @@ function Routes() {
     case '/':
     case '/admin/login':
       return <ScreenErrorBoundary name="Admin Login"><AdminLoginScreen /></ScreenErrorBoundary>;
+    case '/admin/forgot-password':
+      return <ScreenErrorBoundary name="Admin Forgot Password"><AdminForgotPasswordScreen /></ScreenErrorBoundary>;
+    case '/admin/reset-password':
+      return <ScreenErrorBoundary name="Admin Reset Password"><AdminResetPasswordScreen /></ScreenErrorBoundary>;
     case '/admin/mfa/setup':
       return <ScreenErrorBoundary name="Admin MFA Setup"><AdminMfaSetupScreen /></ScreenErrorBoundary>;
     case '/admin/mfa':
