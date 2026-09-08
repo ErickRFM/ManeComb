@@ -89,7 +89,8 @@ const mobile = requireKeys('mobile/.env.example', [
   'MANECOMB_ANDROID_CLEARTEXT'
 ]);
 const admin = requireKeys('admin-global/.env.example', [
-  'API_PORT', 'VITE_API_URL', 'VITE_PLATFORM_ACCESS_REQUIRED', 'VITE_PLATFORM_API_HOST'
+  'API_PORT', 'VITE_API_URL', 'VITE_PLATFORM_ACCESS_REQUIRED',
+  'VITE_PLATFORM_API_HOST', 'VITE_PLATFORM_ADMIN_HOST'
 ]);
 const mobileProduction = requireKeys('mobile/.env.production', [
   'MANECOMB_APP_ENV', 'MANECOMB_API_URL', 'MANECOMB_SOCKET_URL',
@@ -113,14 +114,17 @@ for (const requiredOrigin of ['https://admin.manecomb.com', 'http://localhost:51
     fail(`backend/.env.example: CLIENT_ORIGIN debe incluir ${requiredOrigin}`);
   }
 }
-if (admin.get('VITE_API_URL') !== 'https://admin-api.manecomb.com') {
-  fail('admin-global/.env.example: VITE_API_URL debe usar la API privada');
+if (admin.get('VITE_API_URL') !== 'https://admin.manecomb.com') {
+  fail('admin-global/.env.example: VITE_API_URL debe usar el mismo origen privado');
 }
 if (admin.get('VITE_PLATFORM_ACCESS_REQUIRED') !== 'true') {
   fail('admin-global/.env.example: Access debe ser obligatorio en el build privado');
 }
-if (admin.get('VITE_PLATFORM_API_HOST') !== 'admin-api.manecomb.com') {
-  fail('admin-global/.env.example: hostname privado inválido');
+if (admin.get('VITE_PLATFORM_API_HOST') !== 'admin.manecomb.com') {
+  fail('admin-global/.env.example: API host debe ser same-origin');
+}
+if (admin.get('VITE_PLATFORM_ADMIN_HOST') !== 'admin.manecomb.com') {
+  fail('admin-global/.env.example: Admin host privado inválido');
 }
 
 for (const [name, entries] of [
@@ -168,9 +172,17 @@ if (exists('admin-global/public/_redirects')) {
   fail('Admin Worker no debe publicar _redirects; provoca un loop con static assets');
 }
 const wrangler = JSON.parse(read('admin-global/wrangler.jsonc'));
+if (wrangler.main !== './worker.mjs') fail('wrangler.jsonc: main debe ser ./worker.mjs');
+if (wrangler.assets?.binding !== 'ASSETS') fail('wrangler.jsonc: assets.binding debe ser ASSETS');
 if (wrangler.assets?.directory !== './dist') fail('wrangler.jsonc: assets.directory debe ser ./dist');
 if (wrangler.assets?.not_found_handling !== 'single-page-application') {
   fail('wrangler.jsonc: falta fallback SPA nativo');
+}
+if (wrangler.assets?.run_worker_first !== true) {
+  fail('wrangler.jsonc: el proxy same-origin debe ejecutarse antes de Static Assets');
+}
+if (wrangler.vars?.ADMIN_API_ORIGIN !== 'https://manecomb.onrender.com') {
+  fail('wrangler.jsonc: ADMIN_API_ORIGIN debe apuntar al origin Render productivo');
 }
 if (wrangler.workers_dev !== false || wrangler.preview_urls !== false) {
   fail('wrangler.jsonc: workers.dev y previews deben permanecer desactivados');
@@ -178,7 +190,7 @@ if (wrangler.workers_dev !== false || wrangler.preview_urls !== false) {
 
 const ci = read('.github/workflows/ci.yml');
 if (ci.includes('VITE_API_URL: https://manecomb.onrender.com')) {
-  fail('CI no debe depender del backend real de Produccion para compilar');
+  fail('CI no debe exponer Render como API directa del navegador');
 }
 
 const backendPackage = JSON.parse(read('backend/package.json'));
@@ -242,7 +254,17 @@ if (!accessMiddleware.includes('createPlatformAccessVerifier')) {
 
 const adminClient = read('admin-global/src/lib/platform-api-client.ts');
 if (!adminClient.includes('withCredentials: true')) {
-  fail('Admin Global debe enviar la cookie de Cloudflare Access a la API privada');
+  fail('Admin Global debe conservar credenciales de la sesión privada');
+}
+const adminWorker = read('admin-global/worker.mjs');
+if (!adminWorker.includes("request.headers.get('cf-access-jwt-assertion')")) {
+  fail('Admin Worker debe exigir la assertion Access antes del proxy');
+}
+if (!adminWorker.includes("PLATFORM_PATH_PREFIX = '/api/platform'")) {
+  fail('Admin Worker no limita el proxy al namespace Platform');
+}
+if (/['"]cookie['"]/.test(adminWorker)) {
+  fail('Admin Worker no debe reenviar cookies al origin Render');
 }
 if (!read('admin-global/src/main.tsx').includes('assertPrivateAdminRuntimeConfiguration()')) {
   fail('Admin Global no valida el runtime privado antes de renderizar');

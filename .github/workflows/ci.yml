@@ -243,7 +243,10 @@ jobs:
       run:
         working-directory: admin-global
     env:
-      VITE_API_URL: https://api.example.invalid
+      VITE_API_URL: https://admin.manecomb.com
+      VITE_PLATFORM_ACCESS_REQUIRED: "true"
+      VITE_PLATFORM_API_HOST: admin.manecomb.com
+      VITE_PLATFORM_ADMIN_HOST: admin.manecomb.com
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -267,10 +270,10 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Verify Workers SPA fallback
+      - name: Verify Workers SPA fallback and same-origin proxy
         run: |
           test ! -f dist/_redirects
-          node -e "const fs=require('node:fs'); const config=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8')); if(config.name!=='manecomb-admin'||config.assets?.directory!=='./dist'||config.assets?.not_found_handling!=='single-page-application') process.exit(1)"
+          node -e "const fs=require('node:fs'); const config=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8')); if(config.name!=='manecomb-admin'||config.main!=='./worker.mjs'||config.assets?.binding!=='ASSETS'||config.assets?.directory!=='./dist'||config.assets?.not_found_handling!=='single-page-application'||config.assets?.run_worker_first!==true||config.vars?.ADMIN_API_ORIGIN!=='https://manecomb.onrender.com') process.exit(1)"
 
       - name: Dry-run Workers deployment
         run: npx --yes wrangler@4.119.0 deploy --dry-run

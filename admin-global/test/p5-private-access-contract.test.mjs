@@ -15,6 +15,7 @@ const robots = readAdmin('public/robots.txt');
 const adminEnv = readAdmin('.env.example');
 const index = readAdmin('index.html');
 const wrangler = readAdmin('wrangler.jsonc');
+const worker = readAdmin('worker.mjs');
 const app = readRepo('backend/src/app.js');
 const accessMiddleware = readRepo('backend/src/middlewares/platform-access.js');
 const server = readRepo('backend/src/server.js');
@@ -24,9 +25,11 @@ const deployment = readRepo('docs/admin-global-private-deployment.md');
 
 assert.match(runtime, /VITE_PLATFORM_ACCESS_REQUIRED/);
 assert.match(runtime, /parsed\.protocol !== 'https:'/);
-assert.match(runtime, /admin-api\.manecomb\.com/);
+assert.match(runtime, /API same-origin/);
 assert.match(runtime, /admin\.manecomb\.com/);
+assert.doesNotMatch(runtime, /admin-api\.manecomb\.com/);
 assert.match(runtime, /currentAdminHost !== expectedAdminHost/);
+assert.match(runtime, /expectedApiHost !== expectedAdminHost/);
 assert.match(runtime, /globalThis\.location\?\.hostname/);
 assert.match(runtime, /VITE_PLATFORM_ADMIN_HOST/);
 assert.match(runtime, /validatePrivateAdminRuntime/);
@@ -38,10 +41,22 @@ assert.equal(
   false,
   'Workers no debe conservar el fallback Pages _redirects.'
 );
+assert.match(wrangler, /"main"\s*:\s*"\.\/worker\.mjs"/);
+assert.match(wrangler, /"binding"\s*:\s*"ASSETS"/);
 assert.match(wrangler, /"directory"\s*:\s*"\.\/dist"/);
 assert.match(wrangler, /"not_found_handling"\s*:\s*"single-page-application"/);
+assert.match(wrangler, /"run_worker_first"\s*:\s*true/);
+assert.match(wrangler, /"ADMIN_API_ORIGIN"\s*:\s*"https:\/\/manecomb\.onrender\.com"/);
 assert.match(wrangler, /"workers_dev"\s*:\s*false/);
 assert.match(wrangler, /"preview_urls"\s*:\s*false/);
+
+assert.match(worker, /PLATFORM_PATH_PREFIX = '\/api\/platform'/);
+assert.match(worker, /request\.headers\.get\('cf-access-jwt-assertion'\)/);
+assert.match(worker, /ADMIN_API_ORIGIN/);
+assert.match(worker, /env\.ASSETS\.fetch\(request\)/);
+assert.match(worker, /redirect: 'manual'/);
+assert.match(worker, /PLATFORM_UPSTREAM_UNAVAILABLE/);
+assert.doesNotMatch(worker, /['"]cookie['"]/);
 
 for (const directive of [
   'X-Content-Type-Options: nosniff',
@@ -50,19 +65,20 @@ for (const directive of [
   'Content-Security-Policy:',
   "frame-ancestors 'none'",
   "object-src 'none'",
-  'https://admin-api.manecomb.com',
+  "connect-src 'self'",
   'Cache-Control: no-store',
 ]) {
   assert.ok(headers.includes(directive), `Falta header privado: ${directive}`);
 }
+assert.doesNotMatch(headers, /admin-api\.manecomb\.com/);
 assert.doesNotMatch(headers, /unsafe-eval|connect-src[^\n]*\*/i);
 assert.match(robots, /Disallow: \/$/m);
 assert.match(index, /name="robots" content="noindex, nofollow, noarchive"/);
 
 for (const variable of [
-  'VITE_API_URL=https://admin-api.manecomb.com',
+  'VITE_API_URL=https://admin.manecomb.com',
   'VITE_PLATFORM_ACCESS_REQUIRED=true',
-  'VITE_PLATFORM_API_HOST=admin-api.manecomb.com',
+  'VITE_PLATFORM_API_HOST=admin.manecomb.com',
   'VITE_PLATFORM_ADMIN_HOST=admin.manecomb.com',
 ]) {
   assert.ok(adminEnv.includes(variable), `Falta ${variable} en Admin Global env example.`);
@@ -96,6 +112,7 @@ for (const testFile of [
 assert.match(deployment, /403.*sin Access/s);
 assert.match(deployment, /401.*sin token Platform/s);
 assert.match(deployment, /200.*Access \+ Platform \+ MFA/s);
+assert.match(deployment, /same-origin/i);
 assert.match(deployment, /no afirma que DNS, Cloudflare Access, Render o Producción ya estén configurados/);
 
-console.log('ok - ADM-GLOBAL-P5 private hosts, Access and Worker deployment contracts');
+console.log('ok - ADM-GLOBAL-P5 same-origin Access and Worker proxy contracts');

@@ -2,8 +2,13 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "f25de8df878c5f90d69c8113a5347da6e12bf010",
-    "capturedAt": "2026-09-07"
+    "commit": "c95150a02a5e3b436103340b53c51af820e7dfc3",
+    "capturedAt": "2026-09-08"
+  },
+  "authorityReview": {
+    "commit": "c95150a02a5e3b436103340b53c51af820e7dfc3",
+    "capturedAt": "2026-09-08",
+    "phase": "post-280-admin-global-cutover-preparation"
   },
   "maxBaselineDriftCommits": 5,
   "maxAuthorityMapDriftCommits": 5,
