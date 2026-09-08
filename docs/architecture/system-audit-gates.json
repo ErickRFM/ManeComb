@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "c95150a02a5e3b436103340b53c51af820e7dfc3",
+    "commit": "6c04591cd7c99214305206bc60adf860e6edee90",
     "capturedAt": "2026-09-08"
   },
   "authorityReview": {
-    "commit": "c95150a02a5e3b436103340b53c51af820e7dfc3",
+    "commit": "6c04591cd7c99214305206bc60adf860e6edee90",
     "capturedAt": "2026-09-08",
-    "phase": "post-280-admin-global-cutover-preparation"
+    "phase": "post-285-admin-commercial-mapbox-review"
   },
   "maxBaselineDriftCommits": 5,
   "maxAuthorityMapDriftCommits": 5,
