@@ -3,7 +3,9 @@ const { PLATFORM_JWT_SECRET, PLATFORM_ACCESS_TOKEN_TTL, PLATFORM_MFA_CHALLENGE_T
 
 const PLATFORM_AUDIENCE = "manecomb-platform-admin";
 const PLATFORM_MFA_AUDIENCE = "manecomb-platform-mfa";
+const PLATFORM_PASSWORD_RESET_AUDIENCE = "manecomb-platform-password-reset";
 const PLATFORM_ISSUER = "manecomb-api";
+const PLATFORM_PASSWORD_RESET_TTL = "1h";
 
 function isPlatformSecretValid() {
   return PLATFORM_JWT_SECRET && PLATFORM_JWT_SECRET.length >= 32;
@@ -78,15 +80,57 @@ function verifyPlatformChallengeToken(token) {
   });
 }
 
+function getPasswordChangedAtVersion(user) {
+  const value = user?.passwordChangedAt;
+  if (!value) return 0;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function signPlatformPasswordResetToken(user, requestId) {
+  if (!isPlatformSecretValid()) throw new PlatformAuthNotConfigured();
+  return jwt.sign(
+    {
+      tokenType: "platform_password_reset",
+      pwdv: getPasswordChangedAtVersion(user)
+    },
+    PLATFORM_JWT_SECRET,
+    {
+      expiresIn: PLATFORM_PASSWORD_RESET_TTL,
+      subject: user.id || user._id,
+      audience: PLATFORM_PASSWORD_RESET_AUDIENCE,
+      issuer: PLATFORM_ISSUER,
+      jwtid: requestId
+    }
+  );
+}
+
+function verifyPlatformPasswordResetToken(token) {
+  if (!isPlatformSecretValid()) throw new PlatformAuthNotConfigured();
+  const decoded = jwt.verify(token, PLATFORM_JWT_SECRET, {
+    audience: PLATFORM_PASSWORD_RESET_AUDIENCE,
+    issuer: PLATFORM_ISSUER
+  });
+  if (decoded?.tokenType !== "platform_password_reset") {
+    throw new Error("Token de recuperación inválido");
+  }
+  return decoded;
+}
+
 module.exports = {
   PLATFORM_AUDIENCE,
   PLATFORM_MFA_AUDIENCE,
+  PLATFORM_PASSWORD_RESET_AUDIENCE,
   PLATFORM_ISSUER,
+  PLATFORM_PASSWORD_RESET_TTL,
   signPlatformToken,
   verifyPlatformToken,
   getPlatformTokenExpiration,
   isPlatformSecretValid,
   PlatformAuthNotConfigured,
   signPlatformChallengeToken,
-  verifyPlatformChallengeToken
+  verifyPlatformChallengeToken,
+  signPlatformPasswordResetToken,
+  verifyPlatformPasswordResetToken,
+  getPasswordChangedAtVersion
 };
