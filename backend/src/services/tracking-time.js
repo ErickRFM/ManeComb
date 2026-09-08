@@ -9,6 +9,10 @@ const {
   toLegacyFreshness
 } = require("../domain/gps-telemetry-state");
 
+const CLIENT_QUEUE_AGE_SOURCE_MONOTONIC = "monotonic";
+const CLIENT_QUEUE_AGE_SOURCE_WALL_CLOCK = "wall_clock_fallback";
+const CLIENT_QUEUE_AGE_SOURCE_LEGACY = "legacy_unverified";
+
 /**
  * Conservado como constante derivada: `TRACKING_GPS_FRESHNESS_MS` ya no define
  * la frescura. Un segundo umbral configurable era precisamente la causa de que
@@ -23,40 +27,124 @@ function normalizeClientQueueAge(value) {
   return Math.min(MAX_CLIENT_QUEUE_AGE_MS, Math.round(parsed));
 }
 
-function normalizeTrackingTime(clientTimestamp, receivedAt = new Date(), clientQueueAgeMs = null) {
+function normalizeClientQueueAgeSource(value, hasQueueAge) {
+  if (!hasQueueAge) return null;
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === CLIENT_QUEUE_AGE_SOURCE_MONOTONIC) return CLIENT_QUEUE_AGE_SOURCE_MONOTONIC;
+  if (normalized === CLIENT_QUEUE_AGE_SOURCE_WALL_CLOCK) return CLIENT_QUEUE_AGE_SOURCE_WALL_CLOCK;
+  return CLIENT_QUEUE_AGE_SOURCE_LEGACY;
+}
+
+function clockSkewReason(skewMs) {
+  if (skewMs === null || Math.abs(skewMs) <= MAX_CLIENT_CLOCK_SKEW_MS) return null;
+  return skewMs > 0 ? "client_clock_ahead" : "client_clock_behind";
+}
+
+/**
+ * Normaliza el tiempo de captura sin confundir una resta de reloj de pared con
+ * una duracion monotónica.
+ *
+ * Compatibilidad:
+ * - un paquete directo (sin clientQueueAgeMs) conserva la politica histórica;
+ * - clientes actuales/legacy que mandan queue age sin fuente siguen siendo live
+ *   cuando su timestamp de dispositivo cae dentro del skew permitido;
+ * - una cola con edad no verificable y reloj sospechoso queda historical-only:
+ *   puede reconstruir Jornada, pero no debe competir por la posicion viva;
+ * - solo `clientQueueAgeSource=monotonic` autoriza a reconstruir la captura como
+ *   `receivedAt - clientQueueAgeMs` para live ordering.
+ */
+function normalizeTrackingTime(
+  clientTimestamp,
+  receivedAt = new Date(),
+  clientQueueAgeMs = null,
+  clientQueueAgeSource = null
+) {
   const received = new Date(receivedAt);
   const safeReceived = Number.isNaN(received.getTime()) ? new Date() : received;
   const parsedClient = clientTimestamp ? new Date(clientTimestamp) : null;
-  const hasValidClientTime = parsedClient && !Number.isNaN(parsedClient.getTime());
+  const hasValidClientTime = Boolean(parsedClient && !Number.isNaN(parsedClient.getTime()));
+  const normalizedClientTimestamp = hasValidClientTime ? parsedClient.toISOString() : null;
   const skewMs = hasValidClientTime ? parsedClient.getTime() - safeReceived.getTime() : null;
   const withinAcceptedSkew = skewMs !== null && Math.abs(skewMs) <= MAX_CLIENT_CLOCK_SKEW_MS;
   const normalizedQueueAgeMs = normalizeClientQueueAge(clientQueueAgeMs);
-  const hasTransportQueueAge = normalizedQueueAgeMs !== null;
-  const transportCapturedAt = hasTransportQueueAge
+  const hasQueueAge = normalizedQueueAgeMs !== null;
+  const normalizedQueueAgeSource = normalizeClientQueueAgeSource(clientQueueAgeSource, hasQueueAge);
+  const queueAgeTrusted = hasQueueAge && normalizedQueueAgeSource === CLIENT_QUEUE_AGE_SOURCE_MONOTONIC;
+  const transportCapturedAt = queueAgeTrusted
     ? new Date(safeReceived.getTime() - normalizedQueueAgeMs)
     : null;
+  const invalidClientTimestamp = Boolean(clientTimestamp && !hasValidClientTime);
+  const skewReason = clockSkewReason(skewMs);
+
+  if (queueAgeTrusted) {
+    const capturedAt = transportCapturedAt.toISOString();
+    return {
+      clientTimestamp: normalizedClientTimestamp,
+      receivedAt: safeReceived.toISOString(),
+      processedTimestamp: capturedAt,
+      historicalTimestamp: capturedAt,
+      transportCapturedAt: capturedAt,
+      clientQueueAgeMs: normalizedQueueAgeMs,
+      clientQueueAgeSource: normalizedQueueAgeSource,
+      queueAgeTrusted: true,
+      liveEligible: true,
+      clockSkewMs: skewMs,
+      timestampSource: "transport_queue_age",
+      discardReason: invalidClientTimestamp ? "invalid_client_timestamp" : null
+    };
+  }
+
+  if (hasQueueAge) {
+    if (hasValidClientTime && withinAcceptedSkew) {
+      return {
+        clientTimestamp: normalizedClientTimestamp,
+        receivedAt: safeReceived.toISOString(),
+        processedTimestamp: normalizedClientTimestamp,
+        historicalTimestamp: normalizedClientTimestamp,
+        transportCapturedAt: null,
+        clientQueueAgeMs: normalizedQueueAgeMs,
+        clientQueueAgeSource: normalizedQueueAgeSource,
+        queueAgeTrusted: false,
+        liveEligible: true,
+        clockSkewMs: skewMs,
+        timestampSource: "client",
+        discardReason: null
+      };
+    }
+
+    return {
+      clientTimestamp: normalizedClientTimestamp,
+      receivedAt: safeReceived.toISOString(),
+      processedTimestamp: normalizedClientTimestamp || safeReceived.toISOString(),
+      historicalTimestamp: normalizedClientTimestamp,
+      transportCapturedAt: null,
+      clientQueueAgeMs: normalizedQueueAgeMs,
+      clientQueueAgeSource: normalizedQueueAgeSource,
+      queueAgeTrusted: false,
+      liveEligible: false,
+      clockSkewMs: skewMs,
+      timestampSource: normalizedClientTimestamp ? "client_untrusted_history" : "server",
+      discardReason: invalidClientTimestamp ? "invalid_client_timestamp" : (skewReason || "unverified_queue_age")
+    };
+  }
+
+  const processedTimestamp = withinAcceptedSkew
+    ? normalizedClientTimestamp
+    : safeReceived.toISOString();
 
   return {
-    clientTimestamp: hasValidClientTime ? parsedClient.toISOString() : null,
+    clientTimestamp: normalizedClientTimestamp,
     receivedAt: safeReceived.toISOString(),
-    processedTimestamp: hasTransportQueueAge
-      ? transportCapturedAt.toISOString()
-      : withinAcceptedSkew
-        ? parsedClient.toISOString()
-        : safeReceived.toISOString(),
-    transportCapturedAt: transportCapturedAt ? transportCapturedAt.toISOString() : null,
-    clientQueueAgeMs: normalizedQueueAgeMs,
+    processedTimestamp,
+    historicalTimestamp: normalizedClientTimestamp || processedTimestamp,
+    transportCapturedAt: null,
+    clientQueueAgeMs: null,
+    clientQueueAgeSource: null,
+    queueAgeTrusted: false,
+    liveEligible: true,
     clockSkewMs: skewMs,
-    timestampSource: hasTransportQueueAge
-      ? "transport_queue_age"
-      : withinAcceptedSkew
-        ? "client"
-        : "server",
-    discardReason: clientTimestamp && !hasValidClientTime
-      ? "invalid_client_timestamp"
-      : !hasTransportQueueAge && skewMs !== null && !withinAcceptedSkew
-        ? (skewMs > 0 ? "client_clock_ahead" : "client_clock_behind")
-        : null
+    timestampSource: withinAcceptedSkew ? "client" : "server",
+    discardReason: invalidClientTimestamp ? "invalid_client_timestamp" : skewReason
   };
 }
 
@@ -128,11 +216,15 @@ function resolveSessionStartedAt(requestedStartedAt, now = new Date()) {
 }
 
 module.exports = {
+  CLIENT_QUEUE_AGE_SOURCE_LEGACY,
+  CLIENT_QUEUE_AGE_SOURCE_MONOTONIC,
+  CLIENT_QUEUE_AGE_SOURCE_WALL_CLOCK,
   GPS_FRESHNESS_MS,
   MAX_CLIENT_CLOCK_SKEW_MS,
   MAX_CLIENT_QUEUE_AGE_MS,
   buildGpsFreshness,
   normalizeClientQueueAge,
+  normalizeClientQueueAgeSource,
   normalizeTrackingTime,
   resolveSessionStartedAt
 };
