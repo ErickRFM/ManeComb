@@ -49,12 +49,12 @@ function finiteOrNull(value) {
  * que permite que un backlog offline aterrice en la jornada correcta aunque el
  * conductor ya la haya cerrado.
  */
-async function resolveTrackingSession(store, vehicleId, requestedSessionId, processedTimestamp) {
+async function resolveTrackingSession(store, vehicleId, requestedSessionId, positionTimestamp) {
   const activeSession = await store.getActiveRouteSession(vehicleId);
   const requestedSession = requestedSessionId
     ? await store.getRouteSessionById(requestedSessionId)
     : null;
-  const positionTime = new Date(processedTimestamp);
+  const positionTime = new Date(positionTimestamp);
   const historicalSession = requestedSessionId && !requestedSession && !Number.isNaN(positionTime.getTime())
     ? (await store.listRouteSessions({ vehicleId, limit: 50 })).find((session) =>
         positionTime.getTime() >= new Date(session.startedAt).getTime() &&
@@ -67,9 +67,9 @@ async function resolveTrackingSession(store, vehicleId, requestedSessionId, proc
   return requestedSession || historicalSession || activeSession;
 }
 
-function canSessionAcceptPosition(session, vehicleId, requestedSessionId, processedTimestamp) {
+function canSessionAcceptPosition(session, vehicleId, requestedSessionId, positionTimestamp) {
   if (!session || session.vehicleId !== vehicleId) return false;
-  const positionTime = new Date(processedTimestamp).getTime();
+  const positionTime = new Date(positionTimestamp).getTime();
   if (!Number.isFinite(positionTime) || positionTime < new Date(session.startedAt).getTime()) return false;
   if (session.finishedAt && positionTime > new Date(session.finishedAt).getTime()) return false;
   return session.status === "RUNNING" || (
@@ -147,13 +147,14 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
   const positionDecision = stabilizeGpsPosition(vehicle.location, coordinates);
   const liveCoordinates = positionDecision.coordinates;
 
-  // `clientQueueAgeMs` is an elapsed-duration signal produced at send time by
-  // the client queue. Unlike the device wall clock, elapsed queue age can tell
-  // us that a packet was captured long ago even when the phone clock is skewed.
+  // La edad de cola solo puede gobernar live cuando el productor demuestra que
+  // proviene de un reloj monotono. Colas legacy/wall-clock conservan evidencia
+  // historica, pero no reciben permiso implicito para rejuvenecer la unidad.
   const temporal = normalizeTrackingTime(
     payload.timestamp,
     new Date(),
-    payload.clientQueueAgeMs
+    payload.clientQueueAgeMs,
+    payload.clientQueueAgeSource
   );
   logger.info({
     module: "Tracking",
@@ -175,22 +176,33 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
   if (Number.isFinite(temporal.clientQueueAgeMs)) {
     observeDuration("gps_transport_queue_age_ms", temporal.clientQueueAgeMs, {
       decision: temporal.discardReason || "accepted",
+      source: temporal.clientQueueAgeSource || "none",
       transport
     });
   }
 
-  const update = await store.updateVehicleLocation({
-    vehicleId,
-    coordinates: liveCoordinates,
-    heading,
-    speed,
-    timestamp: temporal.processedTimestamp,
-    temporal,
-    packetId
-  });
+  const update = temporal.shouldApplyLiveProjection
+    ? await store.updateVehicleLocation({
+        vehicleId,
+        coordinates: liveCoordinates,
+        heading,
+        speed,
+        timestamp: temporal.processedTimestamp,
+        temporal,
+        packetId
+      })
+    : {
+        ...vehicle,
+        locationUpdateApplied: false,
+        locationUpdateReason: "untrusted_queue_history_only"
+      };
   const decision = update?.locationUpdateReason || "accepted";
   if (update?.locationUpdateApplied === false) {
-    incrementMetric(decision === "duplicate" ? "gps_packets_duplicate" : "gps_packets_out_of_order", 1, { transport });
+    if (decision === "duplicate") {
+      incrementMetric("gps_packets_duplicate", 1, { transport });
+    } else if (decision === "out_of_order") {
+      incrementMetric("gps_packets_out_of_order", 1, { transport });
+    }
     incrementMetric("gps_packets_rejected", 1, { reason: decision, transport });
     if (decision === "duplicate") {
       observeDuration("gps_ingestion_duration_ms", Date.now() - ingestionStartedAt, {
@@ -210,8 +222,9 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
     }
   }
 
-  const trackingSession = await resolveTrackingSession(store, vehicleId, requestedSessionId, temporal.processedTimestamp);
-  if (canSessionAcceptPosition(trackingSession, vehicleId, requestedSessionId, temporal.processedTimestamp)) {
+  const historyTimestamp = temporal.historyTimestamp || temporal.processedTimestamp;
+  const trackingSession = await resolveTrackingSession(store, vehicleId, requestedSessionId, historyTimestamp);
+  if (canSessionAcceptPosition(trackingSession, vehicleId, requestedSessionId, historyTimestamp)) {
     // Un paquete historico/out-of-order conserva su coordenada capturada para
     // reconstruccion de jornada. Solo la proyeccion viva se estabiliza.
     const sessionCoordinates = update.locationUpdateApplied === false ? coordinates : liveCoordinates;
@@ -222,7 +235,7 @@ async function ingestVehicleLocation({ actor, io, payload = {}, requestId = null
       packetId,
       latitude: sessionCoordinates.latitude,
       longitude: sessionCoordinates.longitude,
-      timestamp: temporal.processedTimestamp,
+      timestamp: historyTimestamp,
       heading,
       speed,
       accuracy,
