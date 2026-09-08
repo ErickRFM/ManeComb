@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "7a8c015756204f8b9e322fbedec777fbdd0e3806",
-    "capturedAt": "2026-09-05",
-    "phase": "post-269-radio-teardown-and-login-keyboard-review"
+    "commit": "f25de8df878c5f90d69c8113a5347da6e12bf010",
+    "capturedAt": "2026-09-07",
+    "phase": "post-273-mobile-ui-and-gps-review"
   },
   "products": [
     {

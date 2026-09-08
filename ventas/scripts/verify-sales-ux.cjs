@@ -15,6 +15,7 @@ const faqItem = read('screens/sales/components/faq-item.tsx');
 const sectionHeading = read('screens/sales/components/section-heading.tsx');
 const immersiveBackground = read('screens/sales/components/immersive-background.tsx');
 const authScreen = read('screens/sales-auth-screen.tsx');
+const authModeSelector = read('screens/auth/components/auth-mode-selector.tsx');
 const authUtils = read('screens/auth/auth.utils.ts');
 const passwordRequirements = read('screens/auth/components/auth-password-requirements.tsx');
 const passwordRecoveryUtils = read('screens/password-recovery/password-recovery.utils.ts');
@@ -30,12 +31,17 @@ assert.match(paymentSection, /label="Sin tarjeta"/);
 assert.match(paymentSection, /label="Tarjeta opcional"/);
 assert.ok(paymentSection.indexOf('label="Sin tarjeta"') < paymentSection.indexOf('label="Tarjeta opcional"'));
 
-// UX-02: registro/login conserva y explica el plan elegido.
-assert.match(authScreen, /TU SELECCIÓN SE CONSERVA/);
+// UX-02: el plan solo pertenece a una intención explícita; login normal no hereda una compra vieja.
+assert.match(authScreen, /const selectedPlanId = getFirstParam\(params\.planId\);/);
+assert.doesNotMatch(authScreen, /readCheckoutContext/);
+assert.match(authScreen, /\{isRegister && selectedPlanId \? \(/);
+assert.match(authScreen, /PLAN ELEGIDO/);
+assert.doesNotMatch(authScreen, /TU SELECCIÓN SE CONSERVA/);
 assert.match(authScreen, /selectedPlan\.name/);
 assert.match(authScreen, /formatCurrency\(selectedPlan\.price\)/);
 assert.match(authScreen, /label="Correo o teléfono"/);
 assert.match(authScreen, /Crear cuenta y continuar/);
+assert.match(authModeSelector, /label="Crear cuenta"/);
 assert.match(authScreen, /La recuperación automática utiliza correo/);
 
 // UX-02B: la contraseña se explica y diagnostica por requisito con semántica Unicode.
@@ -76,9 +82,11 @@ assert.match(salesScreen, /pageRef\.current\?\.scrollTo/);
 assert.match(salesScreen, /registerNativeSection\('descargar'\)/);
 assert.match(salesScreen, /registerNativeSection\('confianza'\)/);
 
-// UX-05: pricing diferencia selección de marketing y declara el costo del add-on.
-assert.match(planCard, /accessibilityState=\{\{ selected: active \}\}/);
-assert.match(planCard, /SELECCIONADO/);
+// UX-05: el carrusel puede enfocar una tarjeta sin declararla como plan comprado o seleccionado.
+assert.match(planCard, /accessibilityLabel=\{`Ver plan \$\{plan\.name\}`\}/);
+assert.doesNotMatch(planCard, /accessibilityState=\{\{ selected: active \}\}/);
+assert.doesNotMatch(planCard, /SELECCIONADO/);
+assert.doesNotMatch(planCard, /planSelectedHalo/);
 assert.match(planCard, /Radio opcional \+\$\{formatCurrency\(plan\.radioAddonPrice \|\| 0\)\} MXN\/mes/);
 assert.match(salesScreen, /const showPlanControls = !isDesktop \|\| plans\.length > desktopVisibleCards/);
 
