@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "6c04591cd7c99214305206bc60adf860e6edee90",
+    "commit": "3eaf9adf3a88004b5d98fd8d3c009f154bcbb532",
     "capturedAt": "2026-09-08"
   },
   "authorityReview": {
-    "commit": "6c04591cd7c99214305206bc60adf860e6edee90",
+    "commit": "3eaf9adf3a88004b5d98fd8d3c009f154bcbb532",
     "capturedAt": "2026-09-08",
-    "phase": "post-285-admin-commercial-mapbox-review"
+    "phase": "post-286-admin-password-recovery-review"
   },
   "maxBaselineDriftCommits": 5,
   "maxAuthorityMapDriftCommits": 5,
