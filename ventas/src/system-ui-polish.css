@@ -35,6 +35,42 @@ body:has(#portal-content-scroll) :is(button, [role="button"]):focus-visible {
   outline-color: rgba(0, 194, 255, 0.95) !important;
 }
 
+/* El rail compacto conserva accesibilidad por aria-label y añade descubrimiento
+ * visual en desktop. El tooltip solo aparece cuando el item no contiene texto,
+ * es decir, cuando la barra está realmente contraída. */
+@media (min-width: 980px) {
+  body:has(#portal-content-scroll) [role="button"][aria-label^="Abrir "]:not(:has([dir="auto"])) {
+    overflow: visible !important;
+    position: relative !important;
+  }
+
+  body:has(#portal-content-scroll) [role="button"][aria-label^="Abrir "]:not(:has([dir="auto"]))::after {
+    background: rgba(5, 12, 25, 0.97);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 9px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+    color: #f8fafc;
+    content: attr(aria-label);
+    font-size: 12px;
+    font-weight: 700;
+    left: calc(100% + 10px);
+    opacity: 0;
+    padding: 7px 9px;
+    pointer-events: none;
+    position: absolute;
+    top: 50%;
+    transform: translate(-4px, -50%);
+    transition: opacity 140ms ease, transform 140ms ease;
+    white-space: nowrap;
+    z-index: 120;
+  }
+
+  body:has(#portal-content-scroll) [role="button"][aria-label^="Abrir "]:not(:has([dir="auto"])):is(:hover, :focus-visible)::after {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+}
+
 /*
  * CENTRO DE OPERACIONES
  * El mapa conserva el 100% del lienzo. Los paneles dejan de recortar el canvas:
@@ -242,7 +278,8 @@ body:has(#portal-content-scroll) :is(button, [role="button"]):focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body:has(#operations-map-surface) #operations-unit-selector {
+  body:has(#operations-map-surface) #operations-unit-selector,
+  body:has(#portal-content-scroll) [role="button"][aria-label^="Abrir "]:not(:has([dir="auto"]))::after {
     transition: none !important;
   }
 }
