@@ -67,6 +67,7 @@ async function testListTripsByVehicleAndServiceDate() {
       vehicleId: "vehicle-101"
     });
     const serviceDate = existingLogs[0]?.serviceDate;
+    const expectedLogs = existingLogs.filter((entry) => entry.serviceDate === serviceDate);
     const { payload, status } = await requestJson(
       `${context.url}/navigation/trips?vehicleId=vehicle-101&date=${serviceDate}&limit=12`,
       context.token
@@ -76,7 +77,7 @@ async function testListTripsByVehicleAndServiceDate() {
     assert.equal(payload.ok, true);
     assert.equal(payload.data.vehicleId, "vehicle-101");
     assert.equal(payload.data.serviceDate, serviceDate);
-    assert.equal(payload.data.logs.length, 2);
+    assert.equal(payload.data.logs.length, expectedLogs.length);
     assert.ok(payload.data.logs.every((entry) => entry.serviceDate === serviceDate));
     console.log("ok - GET /api/navigation/trips filtra por unidad y fecha operativa");
   } finally {
@@ -93,6 +94,8 @@ async function testDeduplicateTripLogCreation() {
       vehicleId: "vehicle-101"
     });
     const serviceDate = existingLogs[0]?.serviceDate || toServiceDate(new Date());
+    const existingForServiceDate = existingLogs.filter((entry) => entry.serviceDate === serviceDate);
+    const expectedLap = existingForServiceDate.length + 1;
     const tripPayload = {
       vehicleId: "vehicle-101",
       vehicleCode: "CB-101",
@@ -130,10 +133,10 @@ async function testDeduplicateTripLogCreation() {
 
     assert.equal(firstResponse.status, 201);
     assert.equal(duplicateResponse.status, 201);
-    assert.equal(firstResponse.payload.data.lap, 3);
-    assert.equal(duplicateResponse.payload.data.lap, 3);
+    assert.equal(firstResponse.payload.data.lap, expectedLap);
+    assert.equal(duplicateResponse.payload.data.lap, expectedLap);
     assert.equal(firstResponse.payload.data.id, duplicateResponse.payload.data.id);
-    assert.equal(historyResponse.payload.data.logs.length, 3);
+    assert.equal(historyResponse.payload.data.logs.length, existingForServiceDate.length + 1);
     assert.equal(
       historyResponse.payload.data.logs.filter(
         (entry) => entry.startedAt === tripPayload.startedAt && entry.finishedAt === tripPayload.finishedAt

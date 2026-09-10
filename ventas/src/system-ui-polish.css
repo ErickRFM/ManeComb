@@ -1,0 +1,359 @@
+/*
+ * ManeComb senior UI polish — Portal operativo.
+ *
+ * Presentación únicamente: no modifica stores, APIs, GPS, rutas, Mapbox data,
+ * permisos ni contratos. Este archivo se carga al final para consolidar el
+ * refinamiento visual sin dispersar nuevos overrides entre módulos.
+ */
+
+body:has(#portal-content-scroll) {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body:has(#portal-content-scroll) #portal-content {
+  gap: 18px !important;
+}
+
+body:has(#portal-content-scroll) #portal-header {
+  column-gap: 18px !important;
+}
+
+body:has(#portal-content-scroll) #portal-header-text {
+  min-width: 0 !important;
+}
+
+body:has(#portal-content-scroll) #portal-header-actions {
+  gap: 8px !important;
+}
+
+body:has(#portal-content-scroll) :is(button, [role="button"]) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body:has(#portal-content-scroll) :is(button, [role="button"]):focus-visible {
+  outline-color: rgba(0, 194, 255, 0.95) !important;
+}
+
+/* El rail compacto conserva accesibilidad por aria-label y añade descubrimiento
+ * visual en desktop. El tooltip solo aparece cuando el item no contiene texto,
+ * es decir, cuando la barra está realmente contraída. */
+@media (min-width: 980px) {
+  body:has(#portal-content-scroll) [role="button"][aria-label^="Abrir "]:not(:has([dir="auto"])) {
+    overflow: visible !important;
+    position: relative !important;
+  }
+
+  body:has(#portal-content-scroll) [role="button"][aria-label^="Abrir "]:not(:has([dir="auto"]))::after {
+    background: rgba(5, 12, 25, 0.97);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 9px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+    color: #f8fafc;
+    content: attr(aria-label);
+    font-size: 12px;
+    font-weight: 700;
+    left: calc(100% + 10px);
+    opacity: 0;
+    padding: 7px 9px;
+    pointer-events: none;
+    position: absolute;
+    top: 50%;
+    transform: translate(-4px, -50%);
+    transition: opacity 140ms ease, transform 140ms ease;
+    white-space: nowrap;
+    z-index: 120;
+  }
+
+  body:has(#portal-content-scroll) [role="button"][aria-label^="Abrir "]:not(:has([dir="auto"])):is(:hover, :focus-visible)::after {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+}
+
+/*
+ * CENTRO DE OPERACIONES
+ * El mapa conserva el 100% del lienzo disponible. Los paneles dejan de recortar
+ * el canvas: unidad seleccionada flota a la derecha y el selector se compacta
+ * cuando no se está utilizando. El workspace conserva flex:1 para ocupar SOLO
+ * el espacio restante bajo el encabezado, evitando recortes verticales.
+ */
+@media (min-width: 1180px) {
+  body:has(#operations-map-surface) #portal-content {
+    padding: 8px 10px 10px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-workspace,
+  body:has(#operations-map-surface) #operations-workspace-selected {
+    display: block !important;
+    flex: 1 1 auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    position: relative !important;
+  }
+
+  body:has(#operations-map-surface) #operations-map-column {
+    height: 100% !important;
+    min-height: 0 !important;
+    width: 100% !important;
+  }
+
+  body:has(#operations-map-surface) #operations-map-surface {
+    border-radius: 16px !important;
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+
+  body:has(#operations-map-surface) #operations-unit-selector {
+    backdrop-filter: blur(20px) saturate(1.08) !important;
+    background: rgba(7, 14, 27, 0.88) !important;
+    border-color: rgba(148, 163, 184, 0.16) !important;
+    border-radius: 13px !important;
+    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.3) !important;
+    max-height: 52px !important;
+    overflow: hidden !important;
+    transition: max-height 190ms ease, width 190ms ease, box-shadow 190ms ease !important;
+    width: 212px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-unit-selector:hover,
+  body:has(#operations-map-surface) #operations-unit-selector:focus-within {
+    box-shadow: 0 22px 54px rgba(0, 0, 0, 0.42) !important;
+    max-height: calc(100% - 122px) !important;
+    overflow: auto !important;
+    width: 236px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-unit-selector > :first-child {
+    min-height: 50px !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-workspace-selected #operations-detail-column {
+    bottom: 104px !important;
+    display: block !important;
+    height: auto !important;
+    max-width: 334px !important;
+    min-height: 0 !important;
+    position: absolute !important;
+    right: 14px !important;
+    top: 64px !important;
+    width: min(334px, 29vw) !important;
+    z-index: 44 !important;
+  }
+
+  body:has(#operations-map-surface) #operations-workspace-selected #operations-detail-surface {
+    backdrop-filter: blur(20px) saturate(1.08) !important;
+    background: rgba(8, 16, 29, 0.93) !important;
+    border: 1px solid rgba(148, 163, 184, 0.17) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 24px 58px rgba(0, 0, 0, 0.4) !important;
+    height: 100% !important;
+    padding: 13px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-workspace-selected #operations-kpi-grid {
+    right: 362px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-workspace-selected #operations-map-surface .mapboxgl-ctrl-top-right {
+    margin-right: 348px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-kpi-grid {
+    background: rgba(6, 13, 25, 0.86) !important;
+    border-radius: 12px !important;
+    left: 12px !important;
+    right: 12px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-kpi-grid > div > * {
+    min-height: 68px !important;
+    padding-bottom: 7px !important;
+    padding-top: 7px !important;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1179px) {
+  body:has(#operations-map-surface) #portal-content {
+    padding: 8px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-workspace,
+  body:has(#operations-map-surface) #operations-workspace-selected {
+    min-height: 620px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-unit-selector {
+    width: 210px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-workspace-selected #operations-detail-column {
+    max-width: 320px !important;
+  }
+}
+
+/*
+ * RUTAS
+ * Rutas ya es map-first en desktop ancho. En tablet y teléfono se fuerza el
+ * preview delante de catálogos/asignaciones para que la geografía siga siendo
+ * la primera referencia visual, no una lista de controles.
+ */
+@media (min-width: 1180px) {
+  body:has(#route-preview-panel) #portal-content {
+    gap: 10px !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) {
+    border-color: rgba(148, 163, 184, 0.12) !important;
+    border-radius: 16px !important;
+    height: calc(100dvh - 142px) !important;
+  }
+
+  #route-unit-selector {
+    left: 12px !important;
+    max-width: 202px !important;
+    top: 12px !important;
+    width: 202px !important;
+  }
+
+  #route-catalog-panel {
+    max-width: 270px !important;
+    right: 12px !important;
+    top: 12px !important;
+    width: 270px !important;
+  }
+
+  #route-preview-panel > div:nth-child(2) {
+    bottom: 12px !important;
+    left: 226px !important;
+    right: 294px !important;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) > div:last-child:not(:has(#route-preview-panel)) {
+    bottom: 80px !important;
+    left: 226px !important;
+    max-height: 32% !important;
+    right: 294px !important;
+  }
+
+  #route-preview-panel .mapboxgl-ctrl-top-right {
+    margin-right: 280px !important;
+  }
+
+  #route-unit-selector,
+  #route-catalog-panel,
+  #route-preview-panel > div:nth-child(2) {
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.3) !important;
+  }
+}
+
+@media (max-width: 1179px) {
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) {
+    align-items: stretch !important;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) > * {
+    min-width: 0 !important;
+    order: 3;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) > div:has(> #route-preview-panel) {
+    flex: 1 1 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    order: -1;
+    width: 100% !important;
+  }
+
+  #route-unit-selector {
+    max-width: none !important;
+    min-width: 0 !important;
+    order: 1;
+  }
+
+  #route-catalog-panel {
+    max-width: none !important;
+    min-width: 0 !important;
+    order: 2;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1179px) {
+  body:has(#route-preview-panel) #route-preview-panel {
+    min-height: 500px !important;
+  }
+
+  #route-unit-selector {
+    flex: 1 1 31% !important;
+  }
+
+  #route-catalog-panel {
+    flex: 1.7 1 46% !important;
+  }
+}
+
+/* Formularios y directorios: menos huecos muertos, sin convertirlos en tablas
+   apretadas. Se mantiene una separación consistente entre bloques. */
+@media (min-width: 980px) {
+  body:has(#portal-content-scroll):not(:has(#operations-map-surface)):not(:has(#route-preview-panel)) #portal-content {
+    max-width: 1480px !important;
+    padding-left: 22px !important;
+    padding-right: 22px !important;
+  }
+}
+
+/* Teléfono: mapa primero, targets táctiles reales y paneles a ancho útil. */
+@media (max-width: 767px) {
+  body:has(#operations-map-surface) #operations-header-action,
+  body:has(#operations-map-surface) #operations-header-action > [role="button"],
+  body:has(#operations-map-surface) #operations-header-action > button {
+    height: 44px !important;
+    min-height: 44px !important;
+    min-width: 44px !important;
+    width: 44px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-unit-selector > [role="button"] {
+    min-height: 44px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-map-surface {
+    border-radius: 14px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-unit-selector {
+    border-radius: 13px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-kpi-grid {
+    border-radius: 13px !important;
+  }
+
+  body:has(#route-preview-panel) #portal-content {
+    gap: 12px !important;
+  }
+
+  body:has(#route-preview-panel) #route-preview-panel {
+    min-height: 420px !important;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) > *,
+  #route-unit-selector,
+  #route-catalog-panel {
+    flex-basis: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body:has(#operations-map-surface) #operations-unit-selector,
+  body:has(#portal-content-scroll) [role="button"][aria-label^="Abrir "]:not(:has([dir="auto"]))::after {
+    transition: none !important;
+  }
+}
