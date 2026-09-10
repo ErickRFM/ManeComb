@@ -64,9 +64,50 @@ body:has([aria-label="Cerrar sesión de Admin Global"]) [role="heading"] {
   letter-spacing: -0.025em;
 }
 
+body:has([aria-label="Cerrar sesión de Admin Global"]) :is(
+  [aria-label="Contraer menú de Admin Global"],
+  [aria-label="Expandir menú de Admin Global"]
+) {
+  height: 40px !important;
+  min-height: 40px !important;
+  min-width: 40px !important;
+  width: 40px !important;
+}
+
 @media (min-width: 900px) {
   body:has([aria-label="Cerrar sesión de Admin Global"]) > #root {
     overflow: hidden;
+  }
+
+  #admin-sidebar-collapsed [aria-label^="Ir a "] {
+    overflow: visible !important;
+    position: relative !important;
+  }
+
+  #admin-sidebar-collapsed [aria-label^="Ir a "]::after {
+    background: rgba(5, 12, 25, 0.98);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 9px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+    color: #f8fafc;
+    content: attr(aria-label);
+    font-size: 12px;
+    font-weight: 700;
+    left: calc(100% + 10px);
+    opacity: 0;
+    padding: 7px 9px;
+    pointer-events: none;
+    position: absolute;
+    top: 50%;
+    transform: translate(-4px, -50%);
+    transition: opacity 140ms ease, transform 140ms ease;
+    white-space: nowrap;
+    z-index: 120;
+  }
+
+  #admin-sidebar-collapsed [aria-label^="Ir a "]:is(:hover, :focus-visible)::after {
+    opacity: 1;
+    transform: translate(0, -50%);
   }
 }
 
@@ -81,7 +122,8 @@ body:has([aria-label="Cerrar sesión de Admin Global"]) [role="heading"] {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body:has([aria-label="Cerrar sesión de Admin Global"]) [role="button"] {
+  body:has([aria-label="Cerrar sesión de Admin Global"]) [role="button"],
+  #admin-sidebar-collapsed [aria-label^="Ir a "]::after {
     transition: none !important;
   }
 }
