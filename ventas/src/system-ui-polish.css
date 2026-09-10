@@ -193,8 +193,9 @@ body:has(#portal-content-scroll) :is(button, [role="button"]):focus-visible {
 
 /*
  * RUTAS
- * Rutas ya es map-first; aquí se reduce chrome y se ordenan los paneles para
- * que el editor/canvas respire mejor sin esconder acciones de negocio.
+ * Rutas ya es map-first en desktop ancho. En tablet y teléfono se fuerza el
+ * preview delante de catálogos/asignaciones para que la geografía siga siendo
+ * la primera referencia visual, no una lista de controles.
  */
 @media (min-width: 1180px) {
   body:has(#route-preview-panel) #portal-content {
@@ -247,6 +248,51 @@ body:has(#portal-content-scroll) :is(button, [role="button"]):focus-visible {
   }
 }
 
+@media (max-width: 1179px) {
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) {
+    align-items: stretch !important;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) > * {
+    min-width: 0 !important;
+    order: 3;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) > div:has(> #route-preview-panel) {
+    flex: 1 1 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    order: -1;
+    width: 100% !important;
+  }
+
+  #route-unit-selector {
+    max-width: none !important;
+    min-width: 0 !important;
+    order: 1;
+  }
+
+  #route-catalog-panel {
+    max-width: none !important;
+    min-width: 0 !important;
+    order: 2;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1179px) {
+  body:has(#route-preview-panel) #route-preview-panel {
+    min-height: 500px !important;
+  }
+
+  #route-unit-selector {
+    flex: 1 1 31% !important;
+  }
+
+  #route-catalog-panel {
+    flex: 1.7 1 46% !important;
+  }
+}
+
 /* Formularios y directorios: menos huecos muertos, sin convertirlos en tablas
    apretadas. Se mantiene una separación consistente entre bloques. */
 @media (min-width: 980px) {
@@ -257,9 +303,21 @@ body:has(#portal-content-scroll) :is(button, [role="button"]):focus-visible {
   }
 }
 
-/* Teléfono: el mapa sigue siendo la superficie primaria, pero se evita que los
- * docks consuman más de lo necesario y se deja aire seguro en los bordes. */
+/* Teléfono: mapa primero, targets táctiles reales y paneles a ancho útil. */
 @media (max-width: 767px) {
+  body:has(#operations-map-surface) #operations-header-action,
+  body:has(#operations-map-surface) #operations-header-action > [role="button"],
+  body:has(#operations-map-surface) #operations-header-action > button {
+    height: 44px !important;
+    min-height: 44px !important;
+    min-width: 44px !important;
+    width: 44px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-unit-selector > [role="button"] {
+    min-height: 44px !important;
+  }
+
   body:has(#operations-map-surface) #operations-map-surface {
     border-radius: 14px !important;
   }
@@ -274,6 +332,19 @@ body:has(#portal-content-scroll) :is(button, [role="button"]):focus-visible {
 
   body:has(#route-preview-panel) #portal-content {
     gap: 12px !important;
+  }
+
+  body:has(#route-preview-panel) #route-preview-panel {
+    min-height: 420px !important;
+  }
+
+  #portal-content > div:has(> #route-unit-selector):has(> #route-catalog-panel) > *,
+  #route-unit-selector,
+  #route-catalog-panel {
+    flex-basis: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    width: 100% !important;
   }
 }
 
