@@ -73,9 +73,10 @@ body:has(#portal-content-scroll) :is(button, [role="button"]):focus-visible {
 
 /*
  * CENTRO DE OPERACIONES
- * El mapa conserva el 100% del lienzo. Los paneles dejan de recortar el canvas:
- * unidad seleccionada flota a la derecha y el selector se compacta cuando no
- * se está utilizando.
+ * El mapa conserva el 100% del lienzo disponible. Los paneles dejan de recortar
+ * el canvas: unidad seleccionada flota a la derecha y el selector se compacta
+ * cuando no se está utilizando. El workspace conserva flex:1 para ocupar SOLO
+ * el espacio restante bajo el encabezado, evitando recortes verticales.
  */
 @media (min-width: 1180px) {
   body:has(#operations-map-surface) #portal-content {
@@ -85,13 +86,15 @@ body:has(#portal-content-scroll) :is(button, [role="button"]):focus-visible {
   body:has(#operations-map-surface) #operations-workspace,
   body:has(#operations-map-surface) #operations-workspace-selected {
     display: block !important;
-    height: calc(100dvh - 18px) !important;
-    min-height: 640px !important;
+    flex: 1 1 auto !important;
+    height: auto !important;
+    min-height: 0 !important;
     position: relative !important;
   }
 
   body:has(#operations-map-surface) #operations-map-column {
     height: 100% !important;
+    min-height: 0 !important;
     width: 100% !important;
   }
 
