@@ -17,9 +17,14 @@ import {
   beginResourceAttempt,
   completeResourceAttempt,
   failResourceAttempt,
-  idleResourceState,
   type ResourceState,
 } from '@shared/resource-state';
+import {
+  createEmptyOperationalState,
+  createIdleMobileResources,
+  type MobileResourceDomain,
+} from './app-state-foundation';
+export type { MobileResourceDomain } from './app-state-foundation';
 import {
   clearOfflineCache,
   enqueuePendingSyncOperation,
@@ -237,25 +242,6 @@ type RealtimeDiagnostics = {
   operationalUnitId: string | null;
 };
 
-export type MobileResourceDomain =
-  | 'operationalUnits'
-  | 'mapData'
-  | 'incidents'
-  | 'documents'
-  | 'notifications'
-  | 'users'
-  | 'conversations'
-  | 'routeSessionHistory';
-
-const mobileResourceDomains: MobileResourceDomain[] = [
-  'operationalUnits', 'mapData', 'incidents', 'documents', 'notifications',
-  'users', 'conversations', 'routeSessionHistory',
-];
-
-function idleMobileResources(): Record<MobileResourceDomain, ResourceState> {
-  return Object.fromEntries(mobileResourceDomains.map((domain) => [domain, idleResourceState()])) as Record<MobileResourceDomain, ResourceState>;
-}
-
 export type AppState = {
   apiUrl: string;
   token: string | null;
@@ -406,34 +392,6 @@ function isSessionIdentityCurrent(
   );
 }
 
-function getEmptyOperationalState(): Partial<AppState> {
-  return {
-    mapData: null,
-    operationalUnits: [],
-    resources: idleMobileResources(),
-    incidents: [],
-    conversations: [],
-    chatContacts: [],
-    presenceByUser: {},
-    messagesByConversation: {},
-    chatPageInfoByConversation: {},
-    isLoadingOlderChatByConversation: {},
-    documents: [],
-    notifications: [],
-    users: [],
-    activeRouteSession: null,
-    routeSessionHistory: [],
-    activeConversationId: null,
-    focusedIncidentId: null,
-    typingByConversation: {},
-    readByConversation: {},
-    pendingSyncCount: 0,
-    lastCacheAt: null,
-    lastSyncedAt: null,
-    isRefreshing: false,
-  };
-}
-
 async function clearTenantCache() {
   await clearOfflineCache().catch(() => undefined);
 }
@@ -449,7 +407,7 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
   await persistSession(null, null);
   await clearTenantCache();
   set({
-    ...getEmptyOperationalState(),
+    ...createEmptyOperationalState(),
     token: null,
     refreshToken: null,
     realtimeAuthState: 'ready',
@@ -778,7 +736,7 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
   }
 
   const cachedAt = snapshot.savedAt || new Date().toISOString();
-  const resources = idleMobileResources();
+  const resources = createIdleMobileResources();
   for (const domain of mobileResourceDomains) {
     resources[domain] = {
       status: 'stale',
@@ -949,7 +907,7 @@ async function replaceSessionFromBackend(
   const authContext = getAuthContextFromPayload(session);
 
   set({
-    ...getEmptyOperationalState(),
+    ...createEmptyOperationalState(),
     authContext,
     documents: session.profile.documents,
     networkStatus: 'online',
@@ -2279,7 +2237,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
   apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null, operationalSocketReceivedAt: null, operationalAppliedAt: null, operationalReceiveToApplyMs: null, operationalUnitId: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
-  authContext: null, user: null, mapData: null, operationalUnits: [], resources: idleMobileResources(), incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
+  authContext: null, user: null, mapData: null, operationalUnits: [], resources: createIdleMobileResources(), incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
@@ -2356,7 +2314,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!t) {
         await clearTenantCache();
         set({
-          ...getEmptyOperationalState(),
+          ...createEmptyOperationalState(),
           connectionMode,
           token: null,
           refreshToken: null,
@@ -2394,7 +2352,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             const cachedState = stateFromCache(cached);
             const hasCachedAuthority = Boolean(cachedState.authContext);
             set({
-              ...getEmptyOperationalState(),
+              ...createEmptyOperationalState(),
               ...cachedState,
               connectionMode,
               token: get().token || sessionToken,
@@ -2412,7 +2370,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           // stale Authorization header active while recovery is shown.
           setAuthToken(null);
           set({
-            ...getEmptyOperationalState(),
+            ...createEmptyOperationalState(),
             connectionMode,
             token: null,
             refreshToken: null,
@@ -2439,7 +2397,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (cachedIdentityChanged) {
         await clearTenantCache();
-        set(getEmptyOperationalState());
+        set(createEmptyOperationalState());
       }
 
       const authContext = getAuthContextFromPayload(s);
@@ -2574,7 +2532,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!shouldRefreshOperationalData(authContext, user)) {
         if (isSessionEpochStale(epoch)) return;
         set({
-          ...getEmptyOperationalState(),
+          ...createEmptyOperationalState(),
           authContext,
           user,
           isRefreshing: false,
@@ -2661,7 +2619,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         if (isSessionEpochStale(epoch)) return;
         set({
-          ...getEmptyOperationalState(),
+          ...createEmptyOperationalState(),
           authContext: nextAuthContext,
           isHydrated: true,
           isBootstrapping: false,
