@@ -6,6 +6,8 @@ import {
 import { createIdleMobileResources } from '../app-state-foundation';
 import {
   MOBILE_REFRESH_RESULT_KEYS,
+  beginMobileResourceRefresh,
+  failMobileResourceRefresh,
   projectMobileRefreshResults,
 } from './resource-refresh-projection';
 
@@ -141,5 +143,38 @@ describe('mobile resource refresh projection', () => {
 
     expect(Object.keys(projection.resources)).not.toContain('chatContacts');
     expect(Object.keys(projection.resources)).not.toContain('activeRouteSession');
+  });
+
+
+  it('begins refresh for every tracked resource without changing domain ownership', () => {
+    const current = createIdleMobileResources();
+    current.documents = completeResourceAttempt(
+      beginResourceAttempt(idleResourceState()),
+      { empty: false, source: 'rest' }
+    );
+
+    const refreshing = beginMobileResourceRefresh(current);
+
+    expect(Object.keys(refreshing)).toEqual(Object.keys(current));
+    expect(refreshing.documents.status).toBe('ready');
+    expect(refreshing.documents.isRefreshing).toBe(true);
+    expect(refreshing.incidents.status).toBe('loading');
+    expect(refreshing.incidents.isRefreshing).toBe(true);
+  });
+
+  it('fails every tracked resource through the same injected error policy', () => {
+    const current = beginMobileResourceRefresh(createIdleMobileResources());
+    const toFailure = jest.fn((domain: string) => ({
+      errorCode: `error:${domain}`,
+      errorMessage: `No se pudo actualizar ${domain}.`,
+    }));
+
+    const failed = failMobileResourceRefresh(current, toFailure);
+
+    expect(toFailure).toHaveBeenCalledTimes(Object.keys(current).length);
+    expect(failed.mapData.status).toBe('error');
+    expect(failed.mapData.errorCode).toBe('error:mapData');
+    expect(failed.users.status).toBe('error');
+    expect(failed.users.errorMessage).toBe('No se pudo actualizar users.');
   });
 });
