@@ -15,6 +15,9 @@ let mockNetwork: (snapshot: any) => void;
 const mockUnsubscribe = jest.fn();
 const mockOnline = { isConnected: true, isInternetReachable: true, type: 'wifi', expensive: false };
 
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);
 jest.mock('@/src/native/secure-store', () => ({
   getItemAsync: jest.fn(async () => null), setItemAsync: jest.fn(async () => {}), deleteItemAsync: jest.fn(async () => {}),
 }));
