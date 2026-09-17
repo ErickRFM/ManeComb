@@ -81,16 +81,25 @@ describe('mobile resource refresh projection', () => {
     expect(projection.resources.incidents.errorCode).toBe('500');
   });
 
-  it('centralizes begin and failure transitions for all tracked domains', () => {
-    const refreshing = beginMobileResourceRefresh(createIdleMobileResources());
+  it('centralizes begin and failure transitions without changing ResourceState semantics', () => {
+    const current = createIdleMobileResources();
+    current.documents = completeResourceAttempt(
+      beginResourceAttempt(idleResourceState()),
+      { empty: false, source: 'rest' }
+    );
+
+    const refreshing = beginMobileResourceRefresh(current);
     const failed = failMobileResourceRefresh(refreshing, (domain) => ({
       errorCode: `error:${domain}`,
       errorMessage: `failed:${domain}`,
     }));
 
-    expect(refreshing.mapData.isRefreshing).toBe(true);
+    expect(refreshing.mapData.status).toBe('loading');
+    expect(refreshing.mapData.isRefreshing).toBe(false);
+    expect(refreshing.documents.status).toBe('ready');
     expect(refreshing.documents.isRefreshing).toBe(true);
     expect(failed.mapData.status).toBe('error');
+    expect(failed.documents.status).toBe('stale');
     expect(failed.users.errorCode).toBe('error:users');
   });
 });
