@@ -54,7 +54,7 @@ describe('Mobile identity lifecycle boundary', () => {
 
   it('invalidates the epoch before push unregister and server logout', () => {
     const store = source('./root-store.ts');
-    const signOut = between(store, 'signOut: async () => {', 'setThemeMode: async');
+    const signOut = between(store, 'signOut: async () => {', 'refreshAll: async () => {');
 
     const epochIndex = signOut.indexOf('beginSessionEpoch();');
     const unregisterIndex = signOut.indexOf('await unregisterPushSubscriptionRequest(pt);');
