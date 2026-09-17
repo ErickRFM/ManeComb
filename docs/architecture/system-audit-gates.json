@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "aacbf2052079a65c205f8da7f117d0f3fac4c65c",
+    "commit": "023e5746cf6af6c16778a170fe05f710f5a50767",
     "capturedAt": "2026-09-17"
   },
   "authorityReview": {
-    "commit": "aacbf2052079a65c205f8da7f117d0f3fac4c65c",
+    "commit": "023e5746cf6af6c16778a170fe05f710f5a50767",
     "capturedAt": "2026-09-17",
-    "phase": "system-closeout-post-291-reviewed-ui"
+    "phase": "system-closeout-pre-merge-reviewed-candidate"
   },
   "maxBaselineDriftCommits": 5,
   "maxAuthorityMapDriftCommits": 5,

@@ -129,6 +129,8 @@ jobs:
 
       - name: Setup Node
         uses: actions/setup-node@v5
+        with:
+          node-version: "22"
 
       - name: Verify canonical targets, deployed SHA and core readiness
         run: node scripts/verify-production-certification-target.mjs
