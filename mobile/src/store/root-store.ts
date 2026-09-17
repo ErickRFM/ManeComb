@@ -161,8 +161,8 @@ import { shouldAdoptRouteSessionUpdate } from '@/src/store/route-session-reconci
 import { resolveWebStorage } from '@/src/store/safe-web-storage';
 import { createStoreStorageRuntime } from './runtime/store-storage';
 import { createSessionStorageRuntime } from './runtime/session-storage';
+import { createPreferencesSlice } from './slices/preferences-slice';
 
-const THEME_KEY = 'combis-theme-mode';
 const PUSH_TOKEN_KEY = 'combis-push-token';
 const E2EE_KEY_PREFIX = 'combis-e2ee-keypair:';
 const E2EE_DEVICE_PREFIX = 'combis-e2ee-device:';
@@ -2190,6 +2190,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  ...createPreferencesSlice(set, get),
   realtimeAuthState: 'ready',
   recoverRealtimeAuth: (failedToken) => refreshRealtimeAuth(set, get, failedToken),
   confirmRealtimeAuth: (acceptedToken) => {
@@ -2198,7 +2199,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       realtimeAuthRetryAt = 0;
     }
   },
-  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null, operationalSocketReceivedAt: null, operationalAppliedAt: null, operationalReceiveToApplyMs: null, operationalUnitId: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
+  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null, operationalSocketReceivedAt: null, operationalAppliedAt: null, operationalReceiveToApplyMs: null, operationalUnitId: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
   authContext: null, user: null, mapData: null, operationalUnits: [], resources: createIdleMobileResources(), incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
@@ -2257,11 +2258,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const epoch = getSessionEpoch();
     set({ isBootstrapping: true, error: null });
     try {
-      const [t, rt, m, th, cached, queue, networkSnapshot] = await Promise.all([
+      const [t, rt, m, cached, queue, networkSnapshot] = await Promise.all([
         sessionStorage.getToken(),
         sessionStorage.getRefreshToken(),
         sessionStorage.getMode(),
-        getStoredItem(THEME_KEY),
         loadOfflineCache().catch(() => null),
         loadPendingSyncQueue().catch(() => []),
         getMobileNetworkSnapshot().catch(() => null),
@@ -2285,7 +2285,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           user: null,
           isHydrated: true,
           isBootstrapping: false,
-          themeMode: th === 'dark' ? 'dark' : 'light',
         });
         return;
       }
@@ -2319,7 +2318,6 @@ export const useAppStore = create<AppState>((set, get) => ({
               connectionMode,
               token: get().token || sessionToken,
               refreshToken: get().refreshToken || nextRefreshToken,
-              themeMode: th === 'dark' ? 'dark' : 'light',
               isHydrated: true,
               isBootstrapping: false,
               networkStatus: isProbablyNetworkError(error) ? 'offline' : 'recovering',
@@ -2338,7 +2336,6 @@ export const useAppStore = create<AppState>((set, get) => ({
             refreshToken: null,
             authContext: null,
             user: null,
-            themeMode: th === 'dark' ? 'dark' : 'light',
             isHydrated: false,
             isBootstrapping: false,
             networkStatus: isProbablyNetworkError(error) ? 'offline' : 'recovering',
@@ -2375,7 +2372,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         };
         set({ updateInfo: updateInfoPayload });
       }
-      set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
+      set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, user: s.profile.user, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
       connectSocket(set, get);
@@ -2468,7 +2465,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     await clearSessionState(set);
   },
-  setThemeMode: async (m) => { await setStoredItem(THEME_KEY, m); set({ themeMode: m }); },
   refreshAll: async () => {
     const refreshEpoch = getSessionEpoch();
     if (refreshAllInFlight?.epoch === refreshEpoch) {
