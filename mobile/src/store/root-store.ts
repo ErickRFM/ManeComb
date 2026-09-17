@@ -14,8 +14,6 @@ import type { ThemeMode } from '@/constants/theme';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import {
   applyIncrementalResourceEvent,
-  beginResourceAttempt,
-  failResourceAttempt,
   type ResourceState,
 } from '@shared/resource-state';
 import {
@@ -24,7 +22,11 @@ import {
   createIdleMobileResources,
   type MobileResourceDomain,
 } from './app-state-foundation';
-import { projectMobileRefreshResults } from './runtime/resource-refresh-projection';
+import {
+  beginMobileResourceRefresh,
+  failMobileResourceRefresh,
+  projectMobileRefreshResults,
+} from './runtime/resource-refresh-projection';
 export type { MobileResourceDomain } from './app-state-foundation';
 import {
   clearOfflineCache,
@@ -2477,9 +2479,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const epoch = refreshEpoch;
     set((state) => ({
       isRefreshing: true,
-      resources: Object.fromEntries(
-        MOBILE_RESOURCE_DOMAINS.map((domain) => [domain, beginResourceAttempt(state.resources[domain])])
-      ) as Record<MobileResourceDomain, ResourceState>,
+      resources: beginMobileResourceRefresh(state.resources),
     }));
     try {
       const refreshed = await refreshAuthSession(set, epoch);
@@ -2656,13 +2656,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       set({
         isRefreshing: false,
-        resources: Object.fromEntries(MOBILE_RESOURCE_DOMAINS.map((domain) => [
-          domain,
-          failResourceAttempt(get().resources[domain], {
-            errorCode: isAxiosError(error) ? String(error.response?.status || error.code || 'request_failed') : 'request_failed',
-            errorMessage: getReadableErrorMessage(error, `No se pudo actualizar ${domain}.`, get().networkSnapshot),
-          }),
-        ])) as Record<MobileResourceDomain, ResourceState>,
+        resources: failMobileResourceRefresh(
+          get().resources,
+          (domain) => ({
+            errorCode: isAxiosError(error)
+              ? String(error.response?.status || error.code || 'request_failed')
+              : 'request_failed',
+            errorMessage: getReadableErrorMessage(
+              error,
+              `No se pudo actualizar ${domain}.`,
+              get().networkSnapshot
+            ),
+          })
+        ),
         error: getReadableErrorMessage(
           error,
           'No pudimos sincronizar tu cuenta.',
