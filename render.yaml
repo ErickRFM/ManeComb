@@ -9,7 +9,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: .
     autoDeployTrigger: checksPass
-    healthCheckPath: /api/health
+    healthCheckPath: /api/health/ready
     maxShutdownDelaySeconds: 60
     envVars:
       - key: NODE_ENV
@@ -61,7 +61,7 @@ services:
       - key: DOCUMENT_STORAGE_DRIVER
         value: mongo
       - key: PAYMENT_PROVIDER
-        value: manual
+        value: mercado_pago
       - key: BANK_TRANSFER_ACCOUNT_NAME
         sync: false
       - key: BANK_TRANSFER_CLABE
@@ -69,7 +69,7 @@ services:
       - key: BANK_TRANSFER_BANK_NAME
         sync: false
       - key: MERCADO_PAGO_ENV
-        sync: false
+        value: production
       - key: MERCADO_PAGO_ACCESS_TOKEN
         sync: false
       - key: MERCADO_PAGO_PUBLIC_KEY

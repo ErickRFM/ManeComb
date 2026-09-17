@@ -13,6 +13,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardSafeScrollView } from '@/src/components/keyboard-safe-layout';
 import { useShallow } from 'zustand/react/shallow';
+import {
+  resolveWebStorage,
+  safeWebStorageGetItem,
+  safeWebStorageSetItem,
+} from '@shared/browser-session/safe-web-storage';
 import { AppTheme, Typography } from '@/constants/theme';
 import { transition, fadeInUp } from '@/src/native/motion';
 import { BrandLogo } from '@/src/components/brand-logo';
@@ -126,10 +131,10 @@ export function PortalLayout({
   }, [title]);
 
   useEffect(() => {
-    if (!isWeb || typeof window === 'undefined') return;
+    const storage = resolveWebStorage(isWeb);
+    if (!storage) return;
 
-    const savedPreference = window.localStorage.getItem(PORTAL_SIDEBAR_STORAGE_KEY);
-    setDesktopSidebarCollapsed(savedPreference === '1');
+    setDesktopSidebarCollapsed(safeWebStorageGetItem(storage, PORTAL_SIDEBAR_STORAGE_KEY) === '1');
   }, [isWeb]);
 
   if (!user) {
@@ -164,8 +169,9 @@ export function PortalLayout({
     setDesktopSidebarCollapsed((current) => {
       const next = !current;
 
-      if (isWeb && typeof window !== 'undefined') {
-        window.localStorage.setItem(PORTAL_SIDEBAR_STORAGE_KEY, next ? '1' : '0');
+      const storage = resolveWebStorage(isWeb);
+      if (storage) {
+        safeWebStorageSetItem(storage, PORTAL_SIDEBAR_STORAGE_KEY, next ? '1' : '0');
       }
 
       return next;
