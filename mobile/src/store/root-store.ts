@@ -160,10 +160,8 @@ import {
 import { shouldAdoptRouteSessionUpdate } from '@/src/store/route-session-reconciliation';
 import { resolveWebStorage } from '@/src/store/safe-web-storage';
 import { createStoreStorageRuntime } from './runtime/store-storage';
+import { createSessionStorageRuntime } from './runtime/session-storage';
 
-const TOKEN_KEY = 'combis-session-token';
-const REFRESH_TOKEN_KEY = 'combis-refresh-token';
-const MODE_KEY = 'combis-session-mode';
 const THEME_KEY = 'combis-theme-mode';
 const PUSH_TOKEN_KEY = 'combis-push-token';
 const E2EE_KEY_PREFIX = 'combis-e2ee-keypair:';
@@ -479,6 +477,9 @@ const getStoredItem = storeStorage.getItem;
 const setStoredItem = storeStorage.setItem;
 const deleteStoredItem = storeStorage.deleteItem;
 
+const sessionStorage = createSessionStorageRuntime(storeStorage);
+const persistSession = sessionStorage.persistSession;
+
 async function getStoredChatKeyPair(userId: string) {
   const raw = await getStoredItem(`${E2EE_KEY_PREFIX}${userId}`);
   if (!raw) return null;
@@ -658,26 +659,6 @@ function sortConversations(conversations: ConversationSummary[]) {
 function upsertConversation(conversations: ConversationSummary[], next: ConversationSummary) {
   const exists = conversations.some((c) => c.id === next.id);
   return sortConversations(exists ? conversations.map((c) => (c.id === next.id ? { ...c, ...next } : c)) : [next, ...conversations]);
-}
-
-async function persistSession(
-  token: string | null,
-  mode: ConnectionMode | null,
-  refreshToken?: string | null
-) {
-  if (!token || !mode) {
-    await deleteStoredItem(TOKEN_KEY);
-    await deleteStoredItem(REFRESH_TOKEN_KEY);
-    await deleteStoredItem(MODE_KEY);
-    return;
-  }
-  await setStoredItem(TOKEN_KEY, token);
-  await setStoredItem(MODE_KEY, mode);
-  if (refreshToken) {
-    await setStoredItem(REFRESH_TOKEN_KEY, refreshToken);
-  } else {
-    await deleteStoredItem(REFRESH_TOKEN_KEY);
-  }
 }
 
 function isProbablyNetworkError(error: unknown) {
@@ -1986,7 +1967,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
   if (!recoveryConfigured) {
     configureApiSessionRecovery({
       getRefreshToken: async () => get().realtimeAuthState === 'unauthorized'
-        ? null : get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
+        ? null : get().refreshToken || sessionStorage.getRefreshToken(),
       onTokenRefresh: async (result) => {
         await applyRefreshedSession(set, get, result);
       },
@@ -2277,9 +2258,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isBootstrapping: true, error: null });
     try {
       const [t, rt, m, th, cached, queue, networkSnapshot] = await Promise.all([
-        getStoredItem(TOKEN_KEY),
-        getStoredItem(REFRESH_TOKEN_KEY),
-        getStoredItem(MODE_KEY),
+        sessionStorage.getToken(),
+        sessionStorage.getRefreshToken(),
+        sessionStorage.getMode(),
         getStoredItem(THEME_KEY),
         loadOfflineCache().catch(() => null),
         loadPendingSyncQueue().catch(() => []),
@@ -2464,7 +2445,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await hardResetBackgroundLocationServiceAsync().catch(() => undefined);
 
     const [rt, pt] = await Promise.all([
-      get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
+      get().refreshToken || sessionStorage.getRefreshToken(),
       getStoredItem(PUSH_TOKEN_KEY),
     ]);
 
