@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { getAppTheme, getNavigationTheme, type ThemeMode } from '@/constants/theme';
 import { useAppStore } from '@/src/store/use-app-store';
@@ -6,16 +6,16 @@ import {
   DEFAULT_THEME_MODE,
   getThemePreferenceScope,
   loadThemePreference,
-  saveThemePreference,
 } from '@/src/store/theme-preference';
 
 let activeThemeScope: string | null | undefined;
 let themeHydrationVersion = 0;
 
 export function useAppTheme() {
-  const { organizationId, themeMode, userId } = useAppStore(
+  const { organizationId, setThemeMode, themeMode, userId } = useAppStore(
     useShallow((state) => ({
       organizationId: state.user?.organizationId || null,
+      setThemeMode: state.setThemeMode,
       themeMode: state.themeMode,
       userId: state.user?.id || null,
     }))
@@ -52,21 +52,6 @@ export function useAppTheme() {
       useAppStore.setState({ themeMode: storedThemeMode });
     });
   }, [owner, themeScope]);
-
-  const setThemeMode = useCallback(
-    async (mode: ThemeMode) => {
-      if (!themeScope) {
-        useAppStore.setState({ themeMode: DEFAULT_THEME_MODE });
-        return;
-      }
-
-      await saveThemePreference(owner, mode);
-      if (activeThemeScope === themeScope) {
-        useAppStore.setState({ themeMode: mode });
-      }
-    },
-    [owner, themeScope]
-  );
 
   const theme = useMemo(() => getAppTheme(resolvedThemeMode), [resolvedThemeMode]);
   const navigationTheme = useMemo(
