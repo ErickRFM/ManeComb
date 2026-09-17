@@ -55,12 +55,17 @@ jobs:
           const before = `import {\n  createEmptyOperationalState,\n  createIdleMobileResources,\n  type MobileResourceDomain,\n} from './app-state-foundation';`;
           const after = `import {\n  MOBILE_RESOURCE_DOMAINS,\n  createEmptyOperationalState,\n  createIdleMobileResources,\n  type MobileResourceDomain,\n} from './app-state-foundation';`;
           if (!source.includes(before)) throw new Error('Expected app-state-foundation import was not found');
-          if ((source.match(/mobileResourceDomains/g) || []).length !== 1) {
-            throw new Error('Expected exactly one residual mobileResourceDomains reference');
+          const residualCount = (source.match(/mobileResourceDomains/g) || []).length;
+          if (residualCount !== 4) {
+            throw new Error(`Expected four residual mobileResourceDomains references, found ${residualCount}`);
           }
           source = source.replace(before, after);
-          source = source.replace('mobileResourceDomains', 'MOBILE_RESOURCE_DOMAINS');
+          source = source.replaceAll('mobileResourceDomains', 'MOBILE_RESOURCE_DOMAINS');
           if (source.includes('mobileResourceDomains')) throw new Error('Residual mobileResourceDomains reference remains');
+          const canonicalCount = (source.match(/MOBILE_RESOURCE_DOMAINS/g) || []).length;
+          if (canonicalCount !== 5) {
+            throw new Error(`Expected one import plus four canonical resource domain uses, found ${canonicalCount}`);
+          }
           fs.writeFileSync(file, source, 'utf8');
           NODE
 
