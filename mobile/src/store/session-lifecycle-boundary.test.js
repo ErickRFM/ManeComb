@@ -92,14 +92,12 @@ describe('Mobile identity lifecycle boundary', () => {
     expect(socketSection).toMatch(/chat:read[\s\S]*if \(!isSocketSessionCurrent\(\)\) return;/);
   });
 
-  it('normalizes transient UI work when an identity ends', () => {
+  it('keeps teardown implementation outside the facade and normalizes transient UI work when an identity ends', () => {
     const facade = source('./use-app-store.ts');
-    const observer = between(
-      facade,
-      'function ensureNativeSessionTeardownObserver()',
-      '// Se instala antes'
-    );
+    const observer = source('./native-session-lifecycle.ts');
 
+    expect(facade).toContain('installNativeSessionLifecycle();');
+    expect(facade).not.toContain('isSubmitting: false');
     expect(observer).toContain('identityJustEnded');
     expect(observer).toContain('isSubmitting: false');
     expect(observer).toContain('isLoadingConversation: false');
