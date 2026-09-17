@@ -20,6 +20,7 @@ import {
   type ResourceState,
 } from '@shared/resource-state';
 import {
+  MOBILE_RESOURCE_DOMAINS,
   createEmptyOperationalState,
   createIdleMobileResources,
   type MobileResourceDomain,
@@ -737,7 +738,7 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
 
   const cachedAt = snapshot.savedAt || new Date().toISOString();
   const resources = createIdleMobileResources();
-  for (const domain of mobileResourceDomains) {
+  for (const domain of MOBILE_RESOURCE_DOMAINS) {
     resources[domain] = {
       status: 'stale',
       isRefreshing: false,
@@ -2520,7 +2521,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       isRefreshing: true,
       resources: Object.fromEntries(
-        mobileResourceDomains.map((domain) => [domain, beginResourceAttempt(state.resources[domain])])
+        MOBILE_RESOURCE_DOMAINS.map((domain) => [domain, beginResourceAttempt(state.resources[domain])])
       ) as Record<MobileResourceDomain, ResourceState>,
     }));
     try {
@@ -2578,7 +2579,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         routeSessionHistory: 9,
       };
       const resourceStates = { ...get().resources };
-      for (const domain of mobileResourceDomains) {
+      for (const domain of MOBILE_RESOURCE_DOMAINS) {
         const result = res[resourceIndex[domain]!];
         if (result.status === 'fulfilled') {
           const value = data[domain];
@@ -2723,7 +2724,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       set({
         isRefreshing: false,
-        resources: Object.fromEntries(mobileResourceDomains.map((domain) => [
+        resources: Object.fromEntries(MOBILE_RESOURCE_DOMAINS.map((domain) => [
           domain,
           failResourceAttempt(get().resources[domain], {
             errorCode: isAxiosError(error) ? String(error.response?.status || error.code || 'request_failed') : 'request_failed',
