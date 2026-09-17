@@ -144,55 +144,56 @@ git add mobile/src/store/app-state-foundation.ts mobile/src/store/app-state-foun
 git commit -m "refactor(mobile): extract root store state foundation"
 ```
 
-### Task 3: Extract session persistence runtime
+### Task 3: Extract shared storage transport and session persistence runtime
 
 **Files:**
+- Create: `mobile/src/store/runtime/store-storage.ts`
+- Create: `mobile/src/store/runtime/store-storage.test.ts`
 - Create: `mobile/src/store/runtime/session-storage.ts`
 - Create: `mobile/src/store/runtime/session-storage.test.ts`
+- Create: `mobile/src/store/root-store-storage-wiring.test.js`
+- Create: `mobile/src/store/root-store-session-storage-wiring.test.js`
 - Modify: `mobile/src/store/root-store.ts`
 
 **Interfaces:**
-- Produces:
-  - `SESSION_STORAGE_KEYS`
-  - `getStoredSessionItem(key): Promise<string | null>`
-  - `setStoredSessionItem(key, value): Promise<boolean>`
-  - `removeStoredSessionItem(key): Promise<void>`
-  - `clearPersistedSession(): Promise<void>`
-- Uses existing `native/secure-store.ts` serialization and `safe-web-storage.ts`; it does not introduce a credential manager or a second session authority.
+- `store-storage.ts` produces `STORE_STORAGE_TIMEOUT_MS` and `createStoreStorageRuntime(...)` with `getItem`, `setItem`, and `deleteItem`.
+- `session-storage.ts` produces `SESSION_STORAGE_KEYS` and `createSessionStorageRuntime(storage)` with `getToken`, `getRefreshToken`, `getMode`, and `persistSession`.
+- The generic runtime owns only web/native transport, timeout and failure fallback behavior.
+- The session runtime owns only session credential keys and the existing persistence ordering.
+- Push and E2EE continue to use the generic storage runtime directly; neither depends on session storage.
+- Neither runtime imports `root-store.ts`, owns Zustand state, or introduces a second session authority.
 
-- [ ] **Step 1: Add tests for persistence semantics**
+**Implementation refinement:** The original plan placed the shared `getStoredItem`/`setStoredItem`/`deleteStoredItem` helpers directly in `session-storage.ts`. Repository inspection showed those helpers are also used by push-token and E2EE persistence. A lower-level stateless `store-storage.ts` boundary therefore preserves ownership more accurately and prevents unrelated domains from depending on a session-named module.
 
-Test that the exported keys remain `combis-session-token`, `combis-refresh-token`, and `combis-session-mode`; web/native branching preserves null/memory failure behavior; and the runtime source does not import `root-store`.
+- [ ] **Step 1: Characterize the generic storage transport**
 
-- [ ] **Step 2: Run focused test and confirm RED**
+Cover the existing 1200 ms timeout, safe web-storage behavior, native fallback behavior, and failure swallowing semantics.
 
-Run: `cd mobile && npx jest src/store/runtime/session-storage.test.ts --runInBand`
-Expected: FAIL because the module does not exist.
+- [ ] **Step 2: Extract the generic runtime and delegate root-store helpers**
 
-- [ ] **Step 3: Move only the existing storage implementation**
+Remove the inline timeout/storage implementation from `root-store.ts` while keeping the same three helper call sites for push/E2EE compatibility.
 
-Move the current timeout-safe `getStoredItem`, `setStoredItem`, `removeStoredItem`, and persisted-session clear mechanics out of `root-store.ts`. Preserve existing timeout values and error swallowing/reporting semantics exactly; do not change session epoch ordering.
+- [ ] **Step 3: Characterize session persistence semantics**
 
-- [ ] **Step 4: Rewire root-store to the runtime helpers**
+Test the exact token/refresh/mode keys and the current write/delete ordering for remembered sessions and teardown.
 
-Replace inline storage calls without changing `initialize`, login/register/activation, token refresh or logout ordering.
+- [ ] **Step 4: Extract session persistence policy**
+
+Move the three session keys and `persistSession` behavior into `session-storage.ts`. Rewire initialization, API refresh fallback and logout reads through the session runtime without changing `session-epoch` ordering.
 
 - [ ] **Step 5: Run persistence/lifecycle contracts**
 
 Run:
 ```bash
 cd mobile
-npx jest src/store/runtime/session-storage.test.ts src/store/session-lifecycle-boundary.test.js src/store/single-account-session-contract.test.js --runInBand
+npx jest src/store/runtime/store-storage.test.ts src/store/runtime/session-storage.test.ts src/store/root-store-storage-wiring.test.js src/store/root-store-session-storage-wiring.test.js src/store/session-lifecycle-boundary.test.js src/store/single-account-session-contract.test.js --runInBand
 npm run typecheck
 ```
 Expected: all PASS.
 
 - [ ] **Step 6: Commit**
 
-```bash
-git add mobile/src/store/runtime/session-storage.ts mobile/src/store/runtime/session-storage.test.ts mobile/src/store/root-store.ts
-git commit -m "refactor(mobile): isolate session persistence runtime"
-```
+Keep generic transport, session policy and wiring contracts independently reversible.
 
 ### Task 4: Extract preference slice construction without changing public state
 
