@@ -15,7 +15,6 @@ import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import {
   applyIncrementalResourceEvent,
   beginResourceAttempt,
-  completeResourceAttempt,
   failResourceAttempt,
   type ResourceState,
 } from '@shared/resource-state';
@@ -25,6 +24,7 @@ import {
   createIdleMobileResources,
   type MobileResourceDomain,
 } from './app-state-foundation';
+import { projectMobileRefreshResults } from './runtime/resource-refresh-projection';
 export type { MobileResourceDomain } from './app-state-foundation';
 import {
   clearOfflineCache,
@@ -2513,49 +2513,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
         getRouteSessionHistoryRequest({ limit: 500 })
       ]);
-      const data: any = {};
-      const keys = ['mapData', 'operationalUnits', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'users', 'activeRouteSession', 'routeSessionHistory'];
-      let fulfilledCount = 0;
-      res.forEach((r, i) => {
-        if (r.status === 'fulfilled') {
-          data[keys[i]] =
-            keys[i] === 'mapData'
-              ? normalizeLiveLocationsData(r.value as LiveLocationsData)
-              : r.value;
-          fulfilledCount += 1;
-        }
+      const projection = projectMobileRefreshResults({
+        results: res,
+        currentResources: get().resources,
+        normalizeMapData: (value) => normalizeLiveLocationsData(value as LiveLocationsData),
+        toFailure: (domain, reason) => ({
+          errorCode: isAxiosError(reason)
+            ? String(reason.response?.status || reason.code || 'request_failed')
+            : 'request_failed',
+          errorMessage: getReadableErrorMessage(
+            reason,
+            `No se pudo actualizar ${domain}.`,
+            get().networkSnapshot
+          ),
+        }),
       });
-      const resourceIndex: Partial<Record<MobileResourceDomain, number>> = {
-        mapData: 0,
-        operationalUnits: 1,
-        incidents: 2,
-        conversations: 3,
-        documents: 5,
-        notifications: 6,
-        users: 7,
-        routeSessionHistory: 9,
-      };
-      const resourceStates = { ...get().resources };
-      for (const domain of MOBILE_RESOURCE_DOMAINS) {
-        const result = res[resourceIndex[domain]!];
-        if (result.status === 'fulfilled') {
-          const value = data[domain];
-          const empty = Array.isArray(value)
-            ? value.length === 0
-            : domain === 'mapData'
-              ? !value || !Array.isArray(value.vehicles) || value.vehicles.length === 0
-              : value == null;
-          resourceStates[domain] = completeResourceAttempt(resourceStates[domain], { empty, source: 'rest' });
-        } else {
-          resourceStates[domain] = failResourceAttempt(resourceStates[domain], {
-            errorCode: isAxiosError(result.reason)
-              ? String(result.reason.response?.status || result.reason.code || 'request_failed')
-              : 'request_failed',
-            errorMessage: getReadableErrorMessage(result.reason, `No se pudo actualizar ${domain}.`, get().networkSnapshot),
-          });
-        }
-      }
-      data.resources = resourceStates;
+      const data: any = projection.data;
+      const fulfilledCount = projection.fulfilledCount;
+      data.resources = projection.resources;
 
       // La autoridad de cuenta y el perfil se reconciliaron al inicio mediante
       // /auth/me. Si la unidad cambio desde el snapshot previo, reconsultamos su
