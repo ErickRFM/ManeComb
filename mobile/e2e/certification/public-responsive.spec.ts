@@ -9,7 +9,7 @@ import {
 const routes = [
   { name: 'ventas', path: '/ventas', signal: /Controla tu flotilla desde una sola operación conectada/i },
   { name: 'login', path: '/ventas/login', signal: /Iniciar sesi[oó]n/i },
-  { name: 'registro', path: '/ventas/registro', signal: /Registrarse/i },
+  { name: 'registro', path: '/ventas/registro', signal: /Crear cuenta/i },
   {
     name: 'recuperacion',
     path: '/ventas/recuperar-contrasena',
@@ -20,7 +20,7 @@ const routes = [
     path: '/reset-password?token=certificacion-token-invalido',
     signal: /contrase|enlace|token/i,
   },
-  { name: 'portal-sin-sesion', path: '/portal', signal: /Iniciar sesi[oó]n|Registrarse/i },
+  { name: 'portal-sin-sesion', path: '/portal', signal: /Iniciar sesi[oó]n|Crear cuenta/i },
 ];
 
 test.describe('CERT-PROD-01 — responsive público', () => {
@@ -62,7 +62,7 @@ test.describe('CERT-PROD-01 — responsive público', () => {
     await expect(page.getByRole('button', { name: 'Elegir plan' }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Usar demo \d+ días/i }).first()).toBeVisible();
 
-    const firstPlanCard = page.getByRole('button', { name: 'Seleccionar plan 2 combis' });
+    const firstPlanCard = page.getByRole('button', { name: 'Ver plan 2 combis' });
     await firstPlanCard.scrollIntoViewIfNeeded();
     await expect(firstPlanCard).toBeVisible();
 
@@ -176,7 +176,7 @@ test.describe('CERT-PROD-01 — responsive público', () => {
     await page.goto('/ventas/login', { waitUntil: 'domcontentloaded' });
 
     const loginTab = page.getByRole('tab', { name: 'Iniciar sesión' });
-    const registerTab = page.getByRole('tab', { name: 'Registrarse' });
+    const registerTab = page.getByRole('tab', { name: 'Crear cuenta' });
     await expect(loginTab).toHaveAttribute('aria-selected', 'true');
 
     for (const tab of [loginTab, registerTab]) {
@@ -236,7 +236,7 @@ test.describe('CERT-PROD-01 — responsive público', () => {
     const ambientAnimation = await ambientWash.evaluate((node) => window.getComputedStyle(node).animationName);
     expect(ambientAnimation, 'El fondo público debe conservar su keyframe ambiental').toContain('manecombGradientShift');
 
-    const firstPlanCard = page.getByRole('button', { name: 'Seleccionar plan 2 combis' });
+    const firstPlanCard = page.getByRole('button', { name: 'Ver plan 2 combis' });
     await firstPlanCard.scrollIntoViewIfNeeded();
     await expect(firstPlanCard).toBeVisible();
 
