@@ -117,15 +117,27 @@ Owns:
 
 It must use existing `session-epoch` rather than introducing another identity generation counter.
 
+### `store/runtime/store-storage.ts`
+
+Owns the shared, stateless storage transport behavior that was previously embedded in `root-store.ts`:
+
+- safe web-storage access through the existing wrappers;
+- native secure-store access through injected adapters;
+- the existing 1200 ms timeout/failure-fallback semantics;
+- no session keys, Zustand state, identity state or domain policy.
+
+This lower-level runtime exists because session credentials, push-device identity and E2EE device/key material all used the same transport helpers. Extracting those helpers directly into `session-storage.ts` would have made a session-named module a dependency of unrelated domains.
+
 ### `store/runtime/session-storage.ts`
 
-Owns:
+Owns only persisted session credential policy:
 
-- SecureStore/web persistence helpers for token, refresh token and remembered-session mode;
-- timeout/failure handling around persistence;
-- no Zustand state.
+- the stable token, refresh-token and remembered-session-mode keys;
+- reads of those three values through the shared storage port;
+- the existing write/delete ordering used by login, refresh, credential rotation and teardown;
+- no Zustand state and no session-epoch authority.
 
-Theme persistence should not remain mixed into this module.
+Push and E2EE remain consumers of the generic storage runtime, not of session storage. Theme persistence remains account-scoped in `theme-preference.ts` and is not part of either storage runtime.
 
 ### `store/slices/connection-slice.ts`
 
