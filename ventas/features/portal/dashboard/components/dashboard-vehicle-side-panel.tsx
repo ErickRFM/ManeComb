@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { StatusBadge } from '@/src/components/ui/status-badge';
@@ -115,7 +116,7 @@ export function VehicleSidePanel({
       {session ? <ProgressBar value={progress} /> : null}
       <View style={styles.sideHighlightRow}>
         <Fact label="Velocidad" value={operationalUnit ? formatOperationalSpeed(operationalUnit.gps) : 'Sin dato'} />
-        <Fact label="ETA" value={getEtaLabel(operationalUnit)} />
+        <Fact label="ETA" value={session ? getEtaLabel(operationalUnit) : 'Sin jornada activa'} />
         <Fact label="Ultimo GPS" value={getLastGpsUpdate(operationalUnit)} />
       </View>
       <DriverProfile driver={activeDriver} title="Chofer actual" />
@@ -201,11 +202,18 @@ export function VehicleSidePanel({
 
 function DriverProfile({ driver, title }: { driver: User | null; title: string }) {
   const photo = driver?.avatarUrl || driver?.avatar || '';
+  const [failedPhoto, setFailedPhoto] = useState('');
   const license = getDriverLicense(driver);
+  const showPhoto = Boolean(photo && failedPhoto !== photo);
   return (
     <View style={styles.driverProfile}>
-      {photo ? (
-        <img src={photo} alt={driver?.name || 'Chofer'} style={driverAvatarImageStyle} />
+      {showPhoto ? (
+        <img
+          src={photo}
+          alt={driver?.name || 'Chofer'}
+          onError={() => setFailedPhoto(photo)}
+          style={driverAvatarImageStyle}
+        />
       ) : (
         <View style={styles.driverAvatar}>
           <Text style={styles.driverAvatarText}>{getDriverInitials(driver)}</Text>

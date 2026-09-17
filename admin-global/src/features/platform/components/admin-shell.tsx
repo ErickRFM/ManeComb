@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -23,6 +23,8 @@ type AdminShellProps = {
   actions?: ReactNode;
 };
 
+const ADMIN_SIDEBAR_STORAGE_KEY = 'manecomb.admin.sidebar.collapsed';
+
 const ROLE_LABELS: Record<string, string> = {
   platform_owner: 'Propietario',
   platform_admin: 'Administrador',
@@ -33,6 +35,12 @@ const ROLE_LABELS: Record<string, string> = {
 
 function formatRole(role: string) {
   return ROLE_LABELS[role] || role.replace('platform_', '').replaceAll('_', ' ');
+}
+
+function getNavigationMonogram(label: string) {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  if (words.length > 1) return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase();
+  return label.slice(0, 2).toUpperCase();
 }
 
 export function AdminShell({ title, subtitle, children, actions }: AdminShellProps) {
@@ -47,12 +55,18 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   const resetCompanies = usePlatformCompanyStore((state) => state.reset);
   const resetOperations = usePlatformOperationsStore((state) => state.reset);
   const resetGovernance = usePlatformGovernanceStore((state) => state.reset);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isDesktop = width >= 900;
   const navigation = getAdminNavigation(capabilities);
 
   useEffect(() => {
     if (session?.token) void load(session.token);
   }, [load, session?.token]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setSidebarCollapsed(window.localStorage.getItem(ADMIN_SIDEBAR_STORAGE_KEY) === '1');
+  }, []);
 
   useEffect(() => {
     if (!session?.token || typeof window === 'undefined') return undefined;
@@ -93,12 +107,24 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
     router.replace('/admin/login');
   };
 
+  const toggleSidebar = () => {
+    setSidebarCollapsed((current) => {
+      const next = !current;
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(ADMIN_SIDEBAR_STORAGE_KEY, next ? '1' : '0');
+      }
+      return next;
+    });
+  };
+
   if (!session) return null;
 
   const navigationContent = navigation.map((item) => {
     const active = pathname === item.path || pathname.startsWith(`${item.path}/`);
+    const compact = isDesktop && sidebarCollapsed;
     return (
       <Pressable
+        {...((compact ? { title: item.label } : {}) as any)}
         accessibilityLabel={`Ir a ${item.label}`}
         accessibilityRole="button"
         accessibilityState={{ selected: active }}
@@ -106,14 +132,15 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
         onPress={() => router.push(item.path)}
         style={({ pressed }) => [
           styles.navigationItem,
+          compact && styles.navigationItemCollapsed,
           active && styles.navigationItemActive,
           pressed && styles.navigationItemPressed,
           !isDesktop && styles.navigationItemMobile,
         ]}
       >
-        <View style={styles.navigationCopy}>
-          <Text style={[styles.navigationLabel, active && styles.navigationLabelActive]}>
-            {isDesktop ? item.label : item.shortLabel}
+        <View style={[styles.navigationCopy, compact && styles.navigationCopyCollapsed]}>
+          <Text style={[styles.navigationLabel, compact && styles.navigationMonogram, active && styles.navigationLabelActive]}>
+            {compact ? getNavigationMonogram(item.shortLabel) : isDesktop ? item.label : item.shortLabel}
           </Text>
         </View>
       </Pressable>
@@ -123,33 +150,62 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   return (
     <View style={[styles.root, isDesktop ? styles.rootDesktop : styles.rootMobile]}>
       {isDesktop ? (
-        <View style={styles.sidebar}>
-          <View style={styles.brandBlock}>
-            <View style={styles.brandRow}>
-              <Text accessibilityRole="header" style={styles.brand}>ManeComb</Text>
-              <Text style={styles.adminBadge}>Admin</Text>
+        <View
+          nativeID={sidebarCollapsed ? 'admin-sidebar-collapsed' : 'admin-sidebar'}
+          style={[styles.sidebar, sidebarCollapsed && styles.sidebarCollapsed]}>
+          <View style={[styles.brandBlock, sidebarCollapsed && styles.brandBlockCollapsed]}>
+            <View style={[styles.brandRow, sidebarCollapsed && styles.brandRowCollapsed]}>
+              {sidebarCollapsed ? (
+                <Text accessibilityRole="header" style={styles.brandCompact}>MC</Text>
+              ) : (
+                <>
+                  <Text accessibilityRole="header" style={styles.brand}>ManeComb</Text>
+                  <Text style={styles.adminBadge}>Admin</Text>
+                </>
+              )}
+              <Pressable
+                accessibilityLabel={sidebarCollapsed ? 'Expandir menú de Admin Global' : 'Contraer menú de Admin Global'}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: !sidebarCollapsed }}
+                onPress={toggleSidebar}
+                style={({ pressed }) => [styles.sidebarToggle, pressed && styles.navigationItemPressed]}>
+                <Text style={styles.sidebarToggleText}>{sidebarCollapsed ? '›' : '‹'}</Text>
+              </Pressable>
             </View>
-            <Text style={styles.brandCaption}>Centro de mando interno</Text>
+            {!sidebarCollapsed ? <Text style={styles.brandCaption}>Centro de mando interno</Text> : null}
           </View>
 
-          <ScrollView contentContainerStyle={styles.sidebarNavigation}>
+          <ScrollView contentContainerStyle={[styles.sidebarNavigation, sidebarCollapsed && styles.sidebarNavigationCollapsed]}>
             {navigationContent}
           </ScrollView>
 
-          <View style={styles.accountBlock}>
-            <Text numberOfLines={1} style={styles.accountName}>{session.user.name || session.user.email}</Text>
-            <Text numberOfLines={1} style={styles.accountEmail}>{session.user.email}</Text>
-            <View style={styles.roleRow}>
-              <Text style={styles.roleBadge}>{formatRole(session.user.role)}</Text>
-              <Text style={styles.secureLabel}>MFA activo</Text>
-            </View>
+          <View style={[styles.accountBlock, sidebarCollapsed && styles.accountBlockCollapsed]}>
+            {sidebarCollapsed ? (
+              <Text style={styles.secureLabelCompact}>MFA</Text>
+            ) : (
+              <>
+                <Text numberOfLines={1} style={styles.accountName}>{session.user.name || session.user.email}</Text>
+                <Text numberOfLines={1} style={styles.accountEmail}>{session.user.email}</Text>
+                <View style={styles.roleRow}>
+                  <Text style={styles.roleBadge}>{formatRole(session.user.role)}</Text>
+                  <Text style={styles.secureLabel}>MFA activo</Text>
+                </View>
+              </>
+            )}
             <Pressable
+              {...((sidebarCollapsed ? { title: 'Cerrar sesión' } : {}) as any)}
               accessibilityRole="button"
               accessibilityLabel="Cerrar sesión de Admin Global"
               onPress={handleLogout}
-              style={({ pressed }) => [styles.logoutButton, pressed && styles.navigationItemPressed]}
+              style={({ pressed }) => [
+                styles.logoutButton,
+                sidebarCollapsed && styles.logoutButtonCollapsed,
+                pressed && styles.navigationItemPressed,
+              ]}
             >
-              <Text style={styles.logoutText}>Cerrar sesión</Text>
+              <Text style={[styles.logoutText, sidebarCollapsed && styles.logoutTextCollapsed]}>
+                {sidebarCollapsed ? 'Salir' : 'Cerrar sesión'}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -211,11 +267,19 @@ const styles = StyleSheet.create({
     minHeight: '100vh' as any,
     paddingHorizontal: 18,
     paddingVertical: 22,
+    transition: 'width 180ms ease, padding 180ms ease' as any,
     width: 260,
   },
+  sidebarCollapsed: {
+    paddingHorizontal: 10,
+    width: 76,
+  },
   brandBlock: { borderBottomColor: palette.line, borderBottomWidth: 1, paddingBottom: 18 },
+  brandBlockCollapsed: { paddingBottom: 14 },
   brandRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  brandRowCollapsed: { flexDirection: 'column', gap: 8 },
   brand: { color: palette.text, fontFamily: Typography.display, fontSize: 20, fontWeight: '900' },
+  brandCompact: { color: palette.text, fontFamily: Typography.display, fontSize: 16, fontWeight: '900', letterSpacing: -0.4 },
   adminBadge: {
     backgroundColor: palette.accentSoft,
     borderColor: 'rgba(227, 30, 36, 0.35)',
@@ -230,8 +294,20 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     textTransform: 'uppercase',
   },
+  sidebarToggle: {
+    alignItems: 'center',
+    borderColor: palette.line,
+    borderRadius: 9,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: 'center',
+    marginLeft: 'auto',
+    width: 34,
+  },
+  sidebarToggleText: { color: palette.text, fontFamily: Typography.body, fontSize: 22, fontWeight: '700', lineHeight: 24 },
   brandCaption: { color: palette.mutedSoft, fontFamily: Typography.body, fontSize: 12, marginTop: 5 },
   sidebarNavigation: { gap: 6, paddingVertical: 16 },
+  sidebarNavigationCollapsed: { alignItems: 'stretch', gap: 7 },
   navigationItem: {
     alignItems: 'center',
     borderColor: 'transparent',
@@ -244,13 +320,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     paddingVertical: 8,
   },
+  navigationItemCollapsed: { justifyContent: 'center', paddingHorizontal: 4 },
   navigationItemActive: { backgroundColor: palette.accentSoft, borderColor: 'rgba(227, 30, 36, 0.3)' },
   navigationItemPressed: { opacity: 0.72 },
   navigationItemMobile: { backgroundColor: palette.card, minHeight: 44, paddingVertical: 8 },
   navigationCopy: { flex: 1 },
+  navigationCopyCollapsed: { alignItems: 'center', justifyContent: 'center' },
   navigationLabel: { color: palette.muted, fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
+  navigationMonogram: { fontFamily: Typography.display, fontSize: 11, fontWeight: '900', letterSpacing: 0.3, textAlign: 'center' },
   navigationLabelActive: { color: palette.text },
   accountBlock: { borderTopColor: palette.line, borderTopWidth: 1, gap: 5, paddingTop: 18 },
+  accountBlockCollapsed: { alignItems: 'stretch', paddingTop: 14 },
   accountName: { color: palette.text, fontFamily: Typography.body, fontSize: 13, fontWeight: '800' },
   accountEmail: { color: palette.mutedSoft, fontFamily: Typography.body, fontSize: 11 },
   roleRow: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 7 },
@@ -265,6 +345,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   secureLabel: { color: palette.success, fontFamily: Typography.body, fontSize: 10, fontWeight: '700' },
+  secureLabelCompact: { color: palette.success, fontFamily: Typography.body, fontSize: 9, fontWeight: '900', textAlign: 'center' },
   logoutButton: {
     alignItems: 'center',
     borderColor: palette.line,
@@ -274,7 +355,9 @@ const styles = StyleSheet.create({
     marginTop: 12,
     minHeight: 44,
   },
+  logoutButtonCollapsed: { marginTop: 8, paddingHorizontal: 2 },
   logoutText: { color: palette.muted, fontFamily: Typography.body, fontSize: 12, fontWeight: '800' },
+  logoutTextCollapsed: { fontSize: 9, textAlign: 'center' },
   mobileChrome: { backgroundColor: '#090E15', borderBottomColor: palette.line, borderBottomWidth: 1 },
   mobileHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14 },
   mobileLogoutButton: { alignItems: 'center', borderColor: palette.line, borderRadius: 9, borderWidth: 1, justifyContent: 'center', minHeight: 44, paddingHorizontal: 14 },

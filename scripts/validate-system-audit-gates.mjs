@@ -22,15 +22,6 @@ function git(...args) {
   }).trim();
 }
 
-function gitRefExists(ref) {
-  try {
-    git('rev-parse', '--verify', ref);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function assertFile(filePath, label) {
   if (!fs.existsSync(filePath)) fail(`${label} is missing: ${path.relative(repositoryRoot, filePath)}`);
 }
@@ -53,7 +44,11 @@ if (errors.length === 0) {
     'CI_RELEASE',
     'PHYSICAL',
   ];
-  const freshnessRef = gitRefExists('origin/main') ? 'origin/main' : 'HEAD';
+  // Always certify the exact checkout candidate. On pull_request this is the
+  // tested merge candidate; on push it is the new main HEAD. Using origin/main
+  // on PRs hid branch drift until after merge and could turn main red even
+  // though the PR gate had passed.
+  const freshnessRef = 'HEAD';
 
   if (contract.schemaVersion !== 1) fail('system-audit-gates schemaVersion must be 1.');
 
@@ -113,15 +108,9 @@ if (errors.length === 0) {
 
   if (errors.length === 0) {
     try {
-      git('merge-base', '--is-ancestor', baseline, 'HEAD');
-    } catch {
-      fail(`Audit baseline ${baseline} is not an ancestor of HEAD. Reconcile the branch before trusting the audit.`);
-    }
-
-    try {
       git('merge-base', '--is-ancestor', baseline, freshnessRef);
     } catch {
-      fail(`Audit baseline ${baseline} is not an ancestor of ${freshnessRef}. Refresh from current main.`);
+      fail(`Audit baseline ${baseline} is not an ancestor of ${freshnessRef}. Reconcile the candidate before trusting the audit.`);
     }
 
     if (errors.length === 0) {

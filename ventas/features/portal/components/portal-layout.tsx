@@ -34,6 +34,8 @@ type PortalLayoutProps = PropsWithChildren<{
   wide?: boolean;
 }>;
 
+const PORTAL_SIDEBAR_STORAGE_KEY = 'manecomb.portal.sidebar.collapsed';
+
 function getParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -50,7 +52,15 @@ function isActive(pathname: string, href: string, currentSection?: string, itemS
   return pathname.startsWith(href);
 }
 
-export function PortalLayout({ title, subtitle, actions, children, compact = false, compactScrollable = false, wide = false }: PortalLayoutProps) {
+export function PortalLayout({
+  title,
+  subtitle,
+  actions,
+  children,
+  compact = false,
+  compactScrollable = false,
+  wide = false,
+}: PortalLayoutProps) {
   const { height, width } = useWindowDimensions();
   const isWide = width >= 980;
   // Desplazamiento del drawer bajo la barra superior movil (barra ~44 + aire).
@@ -61,6 +71,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
   const params = useLocalSearchParams<{ section?: string | string[] }>();
   const currentSection = getParam(params.section);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [desktopSidebarCollapsed, setDesktopSidebarCollapsed] = useState(false);
   const { signOut, user } = useAppStore(
     useShallow((state) => ({
       signOut: state.signOut,
@@ -114,6 +125,13 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
     }
   }, [title]);
 
+  useEffect(() => {
+    if (!isWeb || typeof window === 'undefined') return;
+
+    const savedPreference = window.localStorage.getItem(PORTAL_SIDEBAR_STORAGE_KEY);
+    setDesktopSidebarCollapsed(savedPreference === '1');
+  }, [isWeb]);
+
   if (!user) {
     return <Redirect href={'/ventas/login' as never} />;
   }
@@ -142,8 +160,21 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
     );
   };
 
+  const toggleDesktopSidebar = () => {
+    setDesktopSidebarCollapsed((current) => {
+      const next = !current;
+
+      if (isWeb && typeof window !== 'undefined') {
+        window.localStorage.setItem(PORTAL_SIDEBAR_STORAGE_KEY, next ? '1' : '0');
+      }
+
+      return next;
+    });
+  };
+
   const renderNavItem = (item: PortalNavItem, variant: 'desktop' | 'mobile' = 'desktop') => {
     const active = isActive(pathname, item.href, currentSection, item.section);
+    const desktopCollapsed = variant === 'desktop' && desktopSidebarCollapsed;
     const itemStyle = variant === 'desktop' ? styles.navItem : styles.mobileNavItem;
     const activeStyle = variant === 'desktop' ? styles.navItemActive : styles.mobileNavItemActive;
     const textStyle = variant === 'desktop' ? styles.navText : styles.mobileNavText;
@@ -157,6 +188,7 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
         accessibilityState={{ selected: active }}
         style={({ hovered, pressed }: any) => [
           itemStyle,
+          desktopCollapsed ? styles.navItemCollapsed : undefined,
           active ? activeStyle : undefined,
           transition('background-color, border-color, transform', 160),
           !active && hovered ? styles.navItemHover : undefined,
@@ -167,16 +199,18 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
           size={variant === 'desktop' ? 19 : 18}
           color={active ? portalPalette.accent : portalPalette.muted}
         />
-        <Text
-          style={[
-            textStyle,
-            {
-              color: active ? '#FFFFFF' : portalPalette.text,
-            },
-          ]}
-          numberOfLines={2}>
-          {item.label}
-        </Text>
+        {!desktopCollapsed ? (
+          <Text
+            style={[
+              textStyle,
+              {
+                color: active ? '#FFFFFF' : portalPalette.text,
+              },
+            ]}
+            numberOfLines={2}>
+            {item.label}
+          </Text>
+        ) : null}
       </Pressable>
     );
   };
@@ -197,7 +231,11 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
               color={portalPalette.text}
             />
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Volver a ventas" onPress={() => router.push('/ventas')} style={styles.logoButton}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Volver a ventas"
+            onPress={() => router.push('/ventas')}
+            style={styles.logoButton}>
             <BrandLogo tone="light" size="sm" plain />
           </Pressable>
           <Pressable
@@ -221,7 +259,9 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
               <Text style={styles.breadcrumbCurrent}>{title}</Text>
             </View>
           ) : null}
-          <Text accessibilityRole="header" style={styles.title}>{title}</Text>
+          <Text accessibilityRole="header" style={styles.title}>
+            {title}
+          </Text>
           {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
         </View>
         {actions ? <View nativeID="portal-header-actions" style={styles.actions}>{actions}</View> : null}
@@ -239,40 +279,112 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
         <View style={styles.bgGlowTop} />
         <View style={styles.bgGlowBottom} />
       </View>
+
       <View style={[styles.shell, isWeb ? styles.shellWeb : undefined, isWide ? styles.shellWide : styles.shellStack]}>
         {isWide ? (
-          <View style={[styles.sidebar, isWeb ? styles.sidebarWeb : undefined, portalGlass()]}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Volver a ventas" onPress={() => router.push('/ventas')} style={styles.logoButton}>
-              <BrandLogo tone="light" size="md" plain />
-            </Pressable>
+          <View
+            style={[
+              styles.sidebar,
+              isWeb ? styles.sidebarWeb : undefined,
+              desktopSidebarCollapsed ? styles.sidebarCollapsed : undefined,
+              isWeb ? transition('width, padding, border-radius', 190) : undefined,
+              portalGlass(),
+            ]}>
+            <View style={[styles.sidebarHeader, desktopSidebarCollapsed ? styles.sidebarHeaderCollapsed : undefined]}>
+              {!desktopSidebarCollapsed ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Volver a ventas"
+                  onPress={() => router.push('/ventas')}
+                  style={[styles.logoButton, styles.sidebarLogo]}>
+                  <BrandLogo tone="light" size="md" plain />
+                </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Volver a ventas"
+                  onPress={() => router.push('/ventas')}
+                  style={styles.collapsedBrandButton}>
+                  <MaterialCommunityIcons name="bus" size={21} color={portalPalette.accent} />
+                </Pressable>
+              )}
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={desktopSidebarCollapsed ? 'Expandir menú lateral' : 'Contraer menú lateral'}
+                accessibilityState={{ expanded: !desktopSidebarCollapsed }}
+                onPress={toggleDesktopSidebar}
+                style={({ hovered, pressed }: any) => [
+                  styles.sidebarToggle,
+                  hovered ? styles.sidebarToggleHover : undefined,
+                  pressed ? styles.navItemPressed : undefined,
+                ]}>
+                <MaterialCommunityIcons
+                  name={desktopSidebarCollapsed ? 'chevron-right' : 'chevron-left'}
+                  size={20}
+                  color={portalPalette.text}
+                />
+              </Pressable>
+            </View>
+
             <ScrollView
               {...({ className: 'portal-scrollbar' } as any)}
               style={styles.sidebarScroll}
-              contentContainerStyle={styles.sidebarScrollContent}
+              contentContainerStyle={[
+                styles.sidebarScrollContent,
+                desktopSidebarCollapsed ? styles.sidebarScrollContentCollapsed : undefined,
+              ]}
               showsVerticalScrollIndicator={false}>
-              <View style={styles.navList}>
-                {visibleNavSections.map((section) => (
-                  <View key={section.title} style={styles.navSection}>
-                    <Text style={styles.navSectionTitle}>{section.title}</Text>
-                    {section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item))}
+              <View style={[styles.navList, desktopSidebarCollapsed ? styles.navListCollapsed : undefined]}>
+                {visibleNavSections.map((section, index) => (
+                  <View
+                    key={section.title}
+                    style={[styles.navSection, desktopSidebarCollapsed ? styles.navSectionCollapsed : undefined]}>
+                    {!desktopSidebarCollapsed ? (
+                      <Text style={styles.navSectionTitle}>{section.title}</Text>
+                    ) : index > 0 ? (
+                      <View style={styles.navSectionDivider} />
+                    ) : null}
+                    {section.items
+                      .filter((item) => !item.permission || hasPortalPermission(user, item.permission))
+                      .map((item) => renderNavItem(item))}
                   </View>
                 ))}
               </View>
             </ScrollView>
+
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Cerrar sesión"
               onPress={() => void signOut()}
-              style={styles.logoutButton}>
+              style={[
+                styles.logoutButton,
+                desktopSidebarCollapsed ? styles.logoutButtonCollapsed : undefined,
+              ]}>
               <MaterialCommunityIcons name="logout" size={20} color={portalPalette.danger} />
-              <Text style={styles.logoutText}>Cerrar sesión</Text>
+              {!desktopSidebarCollapsed ? <Text style={styles.logoutText}>Cerrar sesión</Text> : null}
             </Pressable>
           </View>
         ) : null}
 
         {isWeb ? (
-          <View {...({ className: 'portal-scrollbar' } as any)} nativeID="portal-content-scroll" style={[styles.contentScroll, compact && !compactScrollable ? styles.contentScrollDense : undefined]}>
-            <View nativeID="portal-content" style={[styles.content, styles.contentWeb, wide ? styles.contentWide : undefined, compact ? styles.contentDense : undefined, compact && compactScrollable ? styles.contentDenseScrollable : undefined, !isWide ? styles.contentCompact : undefined]}>
+          <View
+            {...({ className: 'portal-scrollbar' } as any)}
+            nativeID="portal-content-scroll"
+            style={[
+              styles.contentScroll,
+              compact && !compactScrollable ? styles.contentScrollDense : undefined,
+            ]}>
+            <View
+              nativeID="portal-content"
+              style={[
+                styles.content,
+                styles.contentWeb,
+                wide ? styles.contentWide : undefined,
+                compact ? styles.contentDense : undefined,
+                compact && compactScrollable ? styles.contentDenseScrollable : undefined,
+                !isWide ? styles.contentCompact : undefined,
+              ]}>
               {contentBody}
             </View>
           </View>
@@ -300,11 +412,22 @@ export function PortalLayout({ title, subtitle, actions, children, compact = fal
             onPress={() => setMobileMenuOpen(false)}
             style={styles.mobileMenuScrim}
           />
-          <View {...({ className: 'portal-scrollbar' } as any)} nativeID="portal-mobile-menu" style={[styles.mobileMenuPanel, { maxHeight: height - mobileMenuTop - AppTheme.spacing.lg }, portalGlass()]}>
+          <View
+            {...({ className: 'portal-scrollbar' } as any)}
+            nativeID="portal-mobile-menu"
+            style={[
+              styles.mobileMenuPanel,
+              { maxHeight: height - mobileMenuTop - AppTheme.spacing.lg },
+              portalGlass(),
+            ]}>
             {visibleNavSections.map((section) => (
               <View key={section.title} style={styles.mobileNavSection}>
                 <Text style={styles.navSectionTitle}>{section.title}</Text>
-                <View style={styles.mobileNavGrid}>{section.items.filter((item) => !item.permission || hasPortalPermission(user, item.permission)).map((item) => renderNavItem(item, 'mobile'))}</View>
+                <View style={styles.mobileNavGrid}>
+                  {section.items
+                    .filter((item) => !item.permission || hasPortalPermission(user, item.permission))
+                    .map((item) => renderNavItem(item, 'mobile'))}
+                </View>
               </View>
             ))}
           </View>
@@ -384,11 +507,57 @@ const styles = StyleSheet.create({
     width: 272,
     borderRadius: 16,
   },
+  sidebarCollapsed: {
+    paddingHorizontal: 9,
+    width: 72,
+  },
   sidebarWeb: {
     alignSelf: 'flex-start',
     maxHeight: `calc(100dvh - ${AppTheme.spacing.xl}px)` as any,
     position: 'sticky' as any,
     top: 14,
+  },
+  sidebarHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 8,
+    justifyContent: 'space-between',
+    minHeight: 38,
+  },
+  sidebarHeaderCollapsed: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  sidebarLogo: {
+    alignItems: 'flex-start',
+    flex: 1,
+    minWidth: 0,
+  },
+  collapsedBrandButton: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  sidebarToggle: {
+    alignItems: 'center',
+    backgroundColor: portalPalette.surfaceSoft,
+    borderColor: portalPalette.line,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexShrink: 0,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  sidebarToggleHover: {
+    backgroundColor: portalPalette.accentSoft,
+    borderColor: 'rgba(255, 77, 125, 0.32)',
   },
   logoButton: {
     alignItems: 'center',
@@ -403,11 +572,30 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingBottom: 2,
   },
+  sidebarScrollContentCollapsed: {
+    alignItems: 'center',
+  },
   navList: {
     gap: 12,
   },
+  navListCollapsed: {
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+  },
   navSection: {
     gap: 4,
+  },
+  navSectionCollapsed: {
+    alignItems: 'center',
+    gap: 4,
+    width: '100%',
+  },
+  navSectionDivider: {
+    backgroundColor: portalPalette.line,
+    height: 1,
+    marginVertical: 4,
+    width: 28,
   },
   navSectionTitle: {
     color: portalPalette.mutedSoft,
@@ -428,6 +616,12 @@ const styles = StyleSheet.create({
     minHeight: 40,
     minWidth: 0,
     paddingHorizontal: 12,
+  },
+  navItemCollapsed: {
+    justifyContent: 'center',
+    minHeight: 42,
+    paddingHorizontal: 0,
+    width: 42,
   },
   navItemActive: {
     backgroundColor: portalPalette.accentSoft,
@@ -462,6 +656,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 42,
     paddingHorizontal: 12,
+  },
+  logoutButtonCollapsed: {
+    alignSelf: 'center',
+    paddingHorizontal: 0,
+    width: 42,
   },
   logoutText: {
     color: portalPalette.danger,

@@ -54,7 +54,7 @@ permissions:
 
 concurrency:
   group: portal-certification-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   public-responsive:
