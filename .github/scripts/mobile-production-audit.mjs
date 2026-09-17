@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
-const ACCEPTANCE_EXPIRES_AT = Date.parse('2026-09-15T00:00:00Z');
+const ACCEPTANCE_EXPIRES_AT = Date.parse('2026-10-17T00:00:00Z');
+const ACCEPTANCE_REVIEW = 'docs/security/mobile-image-size-risk-review-20260917.md';
 const EXPECTED_VULNERABLE_VERSIONS = new Map([
   ['image-size', '1.2.1'],
 ]);
@@ -73,7 +74,7 @@ function collectRootAcceptedAdvisories(vulnerabilities) {
 }
 
 if (Date.now() >= ACCEPTANCE_EXPIRES_AT) {
-  fail('temporary risk acceptance expired on 2026-09-15; review upstream fixes before renewing');
+  fail(`temporary risk acceptance expired on 2026-10-17; re-review ${ACCEPTANCE_REVIEW} before renewing`);
 }
 
 for (const [packageName, expectedVersion] of EXPECTED_VULNERABLE_VERSIONS) {
@@ -149,11 +150,12 @@ for (const expectedUrl of ACCEPTED_ADVISORY_URLS) {
 }
 
 console.warn('TEMPORARY RISK ACCEPTANCE — Mobile production dependency audit');
-console.warn('Expires: 2026-09-15T00:00:00Z');
+console.warn(`Review: ${ACCEPTANCE_REVIEW}`);
+console.warn('Expires: 2026-10-17T00:00:00Z');
 for (const entry of acceptedAdvisories) {
   console.warn(`- ${entry.name} [${entry.severity}]: ${entry.url}`);
 }
 console.warn(
   'All high/critical findings resolve exclusively to the reviewed image-size advisories. ' +
-  'Any new advisory, package version drift, or expiration fails this job.'
+  'Any new advisory, package version drift, disappearance of a reviewed advisory, or expiration fails this job.'
 );

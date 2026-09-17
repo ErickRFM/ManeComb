@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "fe0ec43dff528eca19599630038daa4e128ef21d",
-    "capturedAt": "2026-09-10"
+    "commit": "aacbf2052079a65c205f8da7f117d0f3fac4c65c",
+    "capturedAt": "2026-09-17"
   },
   "authorityReview": {
-    "commit": "fe0ec43dff528eca19599630038daa4e128ef21d",
-    "capturedAt": "2026-09-10",
-    "phase": "post-289-admin-password-recovery-merged"
+    "commit": "aacbf2052079a65c205f8da7f117d0f3fac4c65c",
+    "capturedAt": "2026-09-17",
+    "phase": "system-closeout-post-291-reviewed-ui"
   },
   "maxBaselineDriftCommits": 5,
   "maxAuthorityMapDriftCommits": 5,
