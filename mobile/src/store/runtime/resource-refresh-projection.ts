@@ -1,4 +1,5 @@
 import {
+  beginResourceAttempt,
   completeResourceAttempt,
   failResourceAttempt,
   type ResourceState,
@@ -59,6 +60,29 @@ function isResourceValueEmpty(domain: MobileResourceDomain, value: unknown) {
   }
 
   return value == null;
+}
+
+export function beginMobileResourceRefresh(
+  currentResources: Record<MobileResourceDomain, ResourceState>
+) {
+  return Object.fromEntries(
+    MOBILE_RESOURCE_DOMAINS.map((domain) => [
+      domain,
+      beginResourceAttempt(currentResources[domain]),
+    ])
+  ) as Record<MobileResourceDomain, ResourceState>;
+}
+
+export function failMobileResourceRefresh(
+  currentResources: Record<MobileResourceDomain, ResourceState>,
+  toFailure: (domain: MobileResourceDomain) => ResourceFailure
+) {
+  return Object.fromEntries(
+    MOBILE_RESOURCE_DOMAINS.map((domain) => [
+      domain,
+      failResourceAttempt(currentResources[domain], toFailure(domain)),
+    ])
+  ) as Record<MobileResourceDomain, ResourceState>;
 }
 
 export function projectMobileRefreshResults({
