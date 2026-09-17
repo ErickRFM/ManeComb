@@ -1,3 +1,8 @@
+import {
+  resolveWebStorage,
+  safeWebStorageGetItem,
+  safeWebStorageSetItem,
+} from '@shared/browser-session/safe-web-storage';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
   Pressable,
@@ -64,8 +69,9 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   }, [load, session?.token]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    setSidebarCollapsed(window.localStorage.getItem(ADMIN_SIDEBAR_STORAGE_KEY) === '1');
+    const storage = resolveWebStorage(true);
+    if (!storage) return;
+    setSidebarCollapsed(safeWebStorageGetItem(storage, ADMIN_SIDEBAR_STORAGE_KEY) === '1');
   }, []);
 
   useEffect(() => {
@@ -110,8 +116,9 @@ export function AdminShell({ title, subtitle, children, actions }: AdminShellPro
   const toggleSidebar = () => {
     setSidebarCollapsed((current) => {
       const next = !current;
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(ADMIN_SIDEBAR_STORAGE_KEY, next ? '1' : '0');
+      const storage = resolveWebStorage(true);
+      if (storage) {
+        safeWebStorageSetItem(storage, ADMIN_SIDEBAR_STORAGE_KEY, next ? '1' : '0');
       }
       return next;
     });

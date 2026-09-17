@@ -4,7 +4,7 @@ import {
   safeWebStorageRemoveItem,
   safeWebStorageSetItem,
   type WebStorageLike,
-} from './safe-web-storage';
+} from '@shared/browser-session/safe-web-storage';
 
 function memoryStorage(): WebStorageLike {
   const values = new Map<string, string>();
