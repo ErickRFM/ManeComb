@@ -13,12 +13,20 @@ import type { ThemeMode } from '@/constants/theme';
 import type { OperationalUnitSnapshot } from '@shared/operational-contract';
 import {
   applyIncrementalResourceEvent,
-  beginResourceAttempt,
-  completeResourceAttempt,
-  failResourceAttempt,
-  idleResourceState,
   type ResourceState,
 } from '@shared/resource-state';
+import {
+  MOBILE_RESOURCE_DOMAINS,
+  createEmptyOperationalState,
+  createIdleMobileResources,
+  type MobileResourceDomain,
+} from './app-state-foundation';
+export type { MobileResourceDomain } from './app-state-foundation';
+import {
+  beginMobileResourceRefresh,
+  failMobileResourceRefresh,
+  projectMobileRefreshResults,
+} from './runtime/resource-refresh-projection';
 import {
   clearOfflineCache,
   enqueuePendingSyncOperation,
@@ -152,11 +160,9 @@ import {
 } from '@/src/utils/mobile-authority';
 import { shouldAdoptRouteSessionUpdate } from '@/src/store/route-session-reconciliation';
 import { deleteStoredItem, getStoredItem, setStoredItem } from './persistent-storage';
+import { createSessionStorageRuntime } from './runtime/session-storage';
+import { createPreferencesSlice } from './slices/preferences-slice';
 
-const TOKEN_KEY = 'combis-session-token';
-const REFRESH_TOKEN_KEY = 'combis-refresh-token';
-const MODE_KEY = 'combis-session-mode';
-const THEME_KEY = 'combis-theme-mode';
 const PUSH_TOKEN_KEY = 'combis-push-token';
 const E2EE_KEY_PREFIX = 'combis-e2ee-keypair:';
 const E2EE_DEVICE_PREFIX = 'combis-e2ee-device:';
@@ -229,25 +235,6 @@ type RealtimeDiagnostics = {
   operationalReceiveToApplyMs: number | null;
   operationalUnitId: string | null;
 };
-
-export type MobileResourceDomain =
-  | 'operationalUnits'
-  | 'mapData'
-  | 'incidents'
-  | 'documents'
-  | 'notifications'
-  | 'users'
-  | 'conversations'
-  | 'routeSessionHistory';
-
-const mobileResourceDomains: MobileResourceDomain[] = [
-  'operationalUnits', 'mapData', 'incidents', 'documents', 'notifications',
-  'users', 'conversations', 'routeSessionHistory',
-];
-
-function idleMobileResources(): Record<MobileResourceDomain, ResourceState> {
-  return Object.fromEntries(mobileResourceDomains.map((domain) => [domain, idleResourceState()])) as Record<MobileResourceDomain, ResourceState>;
-}
 
 export type AppState = {
   apiUrl: string;
@@ -399,34 +386,6 @@ function isSessionIdentityCurrent(
   );
 }
 
-function getEmptyOperationalState(): Partial<AppState> {
-  return {
-    mapData: null,
-    operationalUnits: [],
-    resources: idleMobileResources(),
-    incidents: [],
-    conversations: [],
-    chatContacts: [],
-    presenceByUser: {},
-    messagesByConversation: {},
-    chatPageInfoByConversation: {},
-    isLoadingOlderChatByConversation: {},
-    documents: [],
-    notifications: [],
-    users: [],
-    activeRouteSession: null,
-    routeSessionHistory: [],
-    activeConversationId: null,
-    focusedIncidentId: null,
-    typingByConversation: {},
-    readByConversation: {},
-    pendingSyncCount: 0,
-    lastCacheAt: null,
-    lastSyncedAt: null,
-    isRefreshing: false,
-  };
-}
-
 async function clearTenantCache() {
   await clearOfflineCache().catch(() => undefined);
 }
@@ -442,7 +401,7 @@ async function clearSessionState(set: StoreSet, error: string | null = null) {
   await persistSession(null, null);
   await clearTenantCache();
   set({
-    ...getEmptyOperationalState(),
+    ...createEmptyOperationalState(),
     token: null,
     refreshToken: null,
     realtimeAuthState: 'ready',
@@ -506,6 +465,13 @@ function logStoreError(scope: string, error: unknown) {
 
   console.warn(`[store:${scope}] ${message}${traceId ? ` traceId=${traceId}` : ''}`, error);
 }
+
+const sessionStorage = createSessionStorageRuntime({
+  getItem: getStoredItem,
+  setItem: setStoredItem,
+  deleteItem: deleteStoredItem,
+});
+const persistSession = sessionStorage.persistSession;
 
 async function getStoredChatKeyPair(userId: string) {
   const raw = await getStoredItem(`${E2EE_KEY_PREFIX}${userId}`);
@@ -688,26 +654,6 @@ function upsertConversation(conversations: ConversationSummary[], next: Conversa
   return sortConversations(exists ? conversations.map((c) => (c.id === next.id ? { ...c, ...next } : c)) : [next, ...conversations]);
 }
 
-async function persistSession(
-  token: string | null,
-  mode: ConnectionMode | null,
-  refreshToken?: string | null
-) {
-  if (!token || !mode) {
-    await deleteStoredItem(TOKEN_KEY);
-    await deleteStoredItem(REFRESH_TOKEN_KEY);
-    await deleteStoredItem(MODE_KEY);
-    return;
-  }
-  await setStoredItem(TOKEN_KEY, token);
-  await setStoredItem(MODE_KEY, mode);
-  if (refreshToken) {
-    await setStoredItem(REFRESH_TOKEN_KEY, refreshToken);
-  } else {
-    await deleteStoredItem(REFRESH_TOKEN_KEY);
-  }
-}
-
 function isProbablyNetworkError(error: unknown) {
   if (!isAxiosError(error)) {
     return false;
@@ -745,8 +691,8 @@ function stateFromCache(snapshot: OfflineCacheSnapshot | null): Partial<AppState
   }
 
   const cachedAt = snapshot.savedAt || new Date().toISOString();
-  const resources = idleMobileResources();
-  for (const domain of mobileResourceDomains) {
+  const resources = createIdleMobileResources();
+  for (const domain of MOBILE_RESOURCE_DOMAINS) {
     resources[domain] = {
       status: 'stale',
       isRefreshing: false,
@@ -916,7 +862,7 @@ async function replaceSessionFromBackend(
   const authContext = getAuthContextFromPayload(session);
 
   set({
-    ...getEmptyOperationalState(),
+    ...createEmptyOperationalState(),
     authContext,
     documents: session.profile.documents,
     networkStatus: 'online',
@@ -2014,7 +1960,7 @@ function configureMobileRuntime(set: StoreSet, get: () => AppState) {
   if (!recoveryConfigured) {
     configureApiSessionRecovery({
       getRefreshToken: async () => get().realtimeAuthState === 'unauthorized'
-        ? null : get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
+        ? null : get().refreshToken || sessionStorage.getRefreshToken(),
       onTokenRefresh: async (result) => {
         await applyRefreshedSession(set, get, result);
       },
@@ -2237,6 +2183,7 @@ async function processPendingSyncQueue(set: StoreSet, get: () => AppState) {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  ...createPreferencesSlice(set, get),
   realtimeAuthState: 'ready',
   recoverRealtimeAuth: (failedToken) => refreshRealtimeAuth(set, get, failedToken),
   confirmRealtimeAuth: (acceptedToken) => {
@@ -2245,8 +2192,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       realtimeAuthRetryAt = 0;
     }
   },
-  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null, operationalSocketReceivedAt: null, operationalAppliedAt: null, operationalReceiveToApplyMs: null, operationalUnitId: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, themeMode: 'light', isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
-  authContext: null, user: null, mapData: null, operationalUnits: [], resources: idleMobileResources(), incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
+  apiUrl: API_URL, token: null, refreshToken: null, sessionPersistence: 'memory', connectionMode: 'online', networkStatus: 'unknown', socketStatus: 'idle', realtimeDiagnostics: { heartbeatLatencyMs: null, lastPingAt: null, lastPongAt: null, lastSocketTransitionAt: null, missedHeartbeatAcks: 0, reconnectAttempts: 0, reason: null, operationalSocketReceivedAt: null, operationalAppliedAt: null, operationalReceiveToApplyMs: null, operationalUnitId: null }, networkSnapshot: null, pendingSyncCount: 0, lastSyncedAt: null, lastCacheAt: null, isHydrated: false, isBootstrapping: true, isRefreshing: false, isSubmitting: false, isSigningOut: false, accountSuspended: false, updateInfo: null,
+  authContext: null, user: null, mapData: null, operationalUnits: [], resources: createIdleMobileResources(), incidents: [], conversations: [], chatContacts: [], presenceByUser: {}, messagesByConversation: {}, chatPageInfoByConversation: {}, isLoadingOlderChatByConversation: {}, documents: [], notifications: [], users: [], activeRouteSession: null, routeSessionHistory: [],
   deviceLocation: { loading: true, permission: 'undetermined', backgroundPermission: 'undetermined', coordinates: null, lastUpdatedAt: null, servicesEnabled: true, issue: null, retryCount: 0 },
   refreshDeviceLocation: async () => undefined,
   syncBackgroundLocationCredentials: async (token, refreshToken) => {
@@ -2304,11 +2251,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const epoch = getSessionEpoch();
     set({ isBootstrapping: true, error: null });
     try {
-      const [t, rt, m, th, cached, queue, networkSnapshot] = await Promise.all([
-        getStoredItem(TOKEN_KEY),
-        getStoredItem(REFRESH_TOKEN_KEY),
-        getStoredItem(MODE_KEY),
-        getStoredItem(THEME_KEY),
+      const [t, rt, m, cached, queue, networkSnapshot] = await Promise.all([
+        sessionStorage.getToken(),
+        sessionStorage.getRefreshToken(),
+        sessionStorage.getMode(),
         loadOfflineCache().catch(() => null),
         loadPendingSyncQueue().catch(() => []),
         getMobileNetworkSnapshot().catch(() => null),
@@ -2323,7 +2269,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!t) {
         await clearTenantCache();
         set({
-          ...getEmptyOperationalState(),
+          ...createEmptyOperationalState(),
           connectionMode,
           token: null,
           refreshToken: null,
@@ -2332,7 +2278,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           user: null,
           isHydrated: true,
           isBootstrapping: false,
-          themeMode: th === 'dark' ? 'dark' : 'light',
         });
         return;
       }
@@ -2361,12 +2306,11 @@ export const useAppStore = create<AppState>((set, get) => ({
             const cachedState = stateFromCache(cached);
             const hasCachedAuthority = Boolean(cachedState.authContext);
             set({
-              ...getEmptyOperationalState(),
+              ...createEmptyOperationalState(),
               ...cachedState,
               connectionMode,
               token: get().token || sessionToken,
               refreshToken: get().refreshToken || nextRefreshToken,
-              themeMode: th === 'dark' ? 'dark' : 'light',
               isHydrated: true,
               isBootstrapping: false,
               networkStatus: isProbablyNetworkError(error) ? 'offline' : 'recovering',
@@ -2379,13 +2323,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           // stale Authorization header active while recovery is shown.
           setAuthToken(null);
           set({
-            ...getEmptyOperationalState(),
+            ...createEmptyOperationalState(),
             connectionMode,
             token: null,
             refreshToken: null,
             authContext: null,
             user: null,
-            themeMode: th === 'dark' ? 'dark' : 'light',
             isHydrated: false,
             isBootstrapping: false,
             networkStatus: isProbablyNetworkError(error) ? 'offline' : 'recovering',
@@ -2406,7 +2349,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (cachedIdentityChanged) {
         await clearTenantCache();
-        set(getEmptyOperationalState());
+        set(createEmptyOperationalState());
       }
 
       const authContext = getAuthContextFromPayload(s);
@@ -2422,7 +2365,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         };
         set({ updateInfo: updateInfoPayload });
       }
-      set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, themeMode: th === 'dark' ? 'dark' : 'light', user: s.profile.user, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
+      set({ authContext, connectionMode, token: sessionToken, refreshToken: nextRefreshToken, user: s.profile.user, documents: s.profile.documents, isHydrated: true, isBootstrapping: false, networkStatus: 'online', error: null });
       registerCurrentPushToken();
       persistOfflineSnapshot(get);
       connectSocket(set, get);
@@ -2492,7 +2435,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     await hardResetBackgroundLocationServiceAsync().catch(() => undefined);
 
     const [rt, pt] = await Promise.all([
-      get().refreshToken || getStoredItem(REFRESH_TOKEN_KEY),
+      get().refreshToken || sessionStorage.getRefreshToken(),
       getStoredItem(PUSH_TOKEN_KEY),
     ]);
 
@@ -2515,7 +2458,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     await clearSessionState(set);
   },
-  setThemeMode: async (m) => { await setStoredItem(THEME_KEY, m); set({ themeMode: m }); },
   refreshAll: async () => {
     const refreshEpoch = getSessionEpoch();
     if (refreshAllInFlight?.epoch === refreshEpoch) {
@@ -2528,9 +2470,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const epoch = refreshEpoch;
     set((state) => ({
       isRefreshing: true,
-      resources: Object.fromEntries(
-        mobileResourceDomains.map((domain) => [domain, beginResourceAttempt(state.resources[domain])])
-      ) as Record<MobileResourceDomain, ResourceState>,
+      resources: beginMobileResourceRefresh(state.resources),
     }));
     try {
       const refreshed = await refreshAuthSession(set, epoch);
@@ -2541,7 +2481,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!shouldRefreshOperationalData(authContext, user)) {
         if (isSessionEpochStale(epoch)) return;
         set({
-          ...getEmptyOperationalState(),
+          ...createEmptyOperationalState(),
           authContext,
           user,
           isRefreshing: false,
@@ -2564,49 +2504,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         user.vehicleId ? getActiveRouteSessionRequest(user.vehicleId) : Promise.resolve(null),
         getRouteSessionHistoryRequest({ limit: 500 })
       ]);
-      const data: any = {};
-      const keys = ['mapData', 'operationalUnits', 'incidents', 'conversations', 'chatContacts', 'documents', 'notifications', 'users', 'activeRouteSession', 'routeSessionHistory'];
-      let fulfilledCount = 0;
-      res.forEach((r, i) => {
-        if (r.status === 'fulfilled') {
-          data[keys[i]] =
-            keys[i] === 'mapData'
-              ? normalizeLiveLocationsData(r.value as LiveLocationsData)
-              : r.value;
-          fulfilledCount += 1;
-        }
+      const projection = projectMobileRefreshResults({
+        results: res,
+        currentResources: get().resources,
+        normalizeMapData: (value) => normalizeLiveLocationsData(value as LiveLocationsData),
+        toFailure: (domain, reason) => ({
+          errorCode: isAxiosError(reason)
+            ? String(reason.response?.status || reason.code || 'request_failed')
+            : 'request_failed',
+          errorMessage: getReadableErrorMessage(
+            reason,
+            `No se pudo actualizar ${domain}.`,
+            get().networkSnapshot
+          ),
+        }),
       });
-      const resourceIndex: Partial<Record<MobileResourceDomain, number>> = {
-        mapData: 0,
-        operationalUnits: 1,
-        incidents: 2,
-        conversations: 3,
-        documents: 5,
-        notifications: 6,
-        users: 7,
-        routeSessionHistory: 9,
-      };
-      const resourceStates = { ...get().resources };
-      for (const domain of mobileResourceDomains) {
-        const result = res[resourceIndex[domain]!];
-        if (result.status === 'fulfilled') {
-          const value = data[domain];
-          const empty = Array.isArray(value)
-            ? value.length === 0
-            : domain === 'mapData'
-              ? !value || !Array.isArray(value.vehicles) || value.vehicles.length === 0
-              : value == null;
-          resourceStates[domain] = completeResourceAttempt(resourceStates[domain], { empty, source: 'rest' });
-        } else {
-          resourceStates[domain] = failResourceAttempt(resourceStates[domain], {
-            errorCode: isAxiosError(result.reason)
-              ? String(result.reason.response?.status || result.reason.code || 'request_failed')
-              : 'request_failed',
-            errorMessage: getReadableErrorMessage(result.reason, `No se pudo actualizar ${domain}.`, get().networkSnapshot),
-          });
-        }
-      }
-      data.resources = resourceStates;
+      const data: any = projection.data;
+      const fulfilledCount = projection.fulfilledCount;
+      data.resources = projection.resources;
 
       // La autoridad de cuenta y el perfil se reconciliaron al inicio mediante
       // /auth/me. Si la unidad cambio desde el snapshot previo, reconsultamos su
@@ -2628,7 +2543,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         if (isSessionEpochStale(epoch)) return;
         set({
-          ...getEmptyOperationalState(),
+          ...createEmptyOperationalState(),
           authContext: nextAuthContext,
           isHydrated: true,
           isBootstrapping: false,
@@ -2732,13 +2647,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       set({
         isRefreshing: false,
-        resources: Object.fromEntries(mobileResourceDomains.map((domain) => [
-          domain,
-          failResourceAttempt(get().resources[domain], {
-            errorCode: isAxiosError(error) ? String(error.response?.status || error.code || 'request_failed') : 'request_failed',
-            errorMessage: getReadableErrorMessage(error, `No se pudo actualizar ${domain}.`, get().networkSnapshot),
-          }),
-        ])) as Record<MobileResourceDomain, ResourceState>,
+        resources: failMobileResourceRefresh(
+          get().resources,
+          (domain) => ({
+            errorCode: isAxiosError(error)
+              ? String(error.response?.status || error.code || 'request_failed')
+              : 'request_failed',
+            errorMessage: getReadableErrorMessage(
+              error,
+              `No se pudo actualizar ${domain}.`,
+              get().networkSnapshot
+            ),
+          })
+        ),
         error: getReadableErrorMessage(
           error,
           'No pudimos sincronizar tu cuenta.',
