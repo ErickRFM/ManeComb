@@ -72,7 +72,12 @@ describe('Android background GPS session isolation', () => {
     const service = source('../../android/app/src/main/java/com/anonymous/combiscontrol/location/ManeCombLocationService.kt');
     expect(service).toContain('val uploadBody = JSONObject(body.toString())');
     expect(service).toContain('val capturedAt = uploadBody.optLong("timestamp", 0L)');
-    expect(service).toContain('uploadBody.put("clientQueueAgeMs", queueAgeMs)');
+    expect(service).toContain('uploadBody.put("clientQueueAgeMs", age.ageMs)');
+    expect(service).toContain('uploadBody.put("clientQueueAgeSource", age.source)');
+    expect(service).toContain('uploadBody.remove("capturedElapsedRealtimeMs")');
+    expect(service).toContain('uploadBody.remove("capturedBootCount")');
+    expect(service).toContain('body.optLong("capturedElapsedRealtimeMs", -1L)');
+    expect(service).toContain('body.optInt("capturedBootCount", -1)');
     expect(service).toContain('writer.write(uploadBody.toString())');
     expect(service).not.toContain('body.put("clientQueueAgeMs"');
   });
