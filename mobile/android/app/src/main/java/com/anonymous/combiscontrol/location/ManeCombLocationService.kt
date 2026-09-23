@@ -24,6 +24,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -37,6 +38,31 @@ import java.util.Calendar
 import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
+
+// Pure temporal decision: persisted packets can retain monotonic continuity
+// across process death, but never across a reboot or an unknown boot boundary.
+internal data class GpsQueueAgeDecision(val ageMs: Long, val source: String, val isMonotonic: Boolean)
+
+internal fun decideGpsQueueAge(
+  capturedAtWallMs: Long,
+  capturedElapsedRealtimeMs: Long,
+  capturedBootCount: Int,
+  currentWallMs: Long,
+  currentElapsedRealtimeMs: Long,
+  currentBootCount: Int,
+  maxAgeMs: Long
+): GpsQueueAgeDecision {
+  val continuous = capturedElapsedRealtimeMs >= 0L && capturedBootCount >= 0 &&
+    currentBootCount >= 0 && capturedBootCount == currentBootCount &&
+    currentElapsedRealtimeMs >= capturedElapsedRealtimeMs
+  val elapsed = if (continuous) currentElapsedRealtimeMs - capturedElapsedRealtimeMs
+    else (currentWallMs - capturedAtWallMs).coerceAtLeast(0L)
+  return GpsQueueAgeDecision(
+    elapsed.coerceIn(0L, maxAgeMs),
+    if (continuous) "monotonic" else "wall_clock_fallback",
+    continuous
+  )
+}
 
 class ManeCombLocationService : Service(), LocationListener {
   private var apiUrl: String = ""
@@ -250,6 +276,16 @@ class ManeCombLocationService : Service(), LocationListener {
     }
   }
 
+  private fun readBootCount(): Int {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return -1
+    return try {
+      Settings.Global.getInt(contentResolver, Settings.Global.BOOT_COUNT, -1)
+    } catch (error: Exception) {
+      Log.w(TAG, "Could not identify GPS clock boot boundary.", error)
+      -1
+    }
+  }
+
   private fun enqueueLocation(location: Location) {
     val safeApiUrl = apiUrl
     val safeToken = token
@@ -275,11 +311,14 @@ class ManeCombLocationService : Service(), LocationListener {
       )
       .put("speed", if (location.hasSpeed()) location.speed else JSONObject.NULL)
       .put("timestamp", capturedAt)
+      // Internal-only queue metadata: stripped from each outgoing HTTP copy.
+      .put("capturedElapsedRealtimeMs", SystemClock.elapsedRealtime())
+      .put("capturedBootCount", readBootCount())
 
     synchronized(queueLock) {
-      trimPendingLocationsLocked(capturedAt)
+      trimPendingLocationsLocked()
       pendingLocations.addLast(body)
-      trimPendingLocationsLocked(capturedAt)
+      trimPendingLocationsLocked()
       prefs().edit().putLong(KEY_LAST_CAPTURED_AT, capturedAt).apply()
       savePendingLocationsLocked()
     }
@@ -407,13 +446,22 @@ class ManeCombLocationService : Service(), LocationListener {
       val uploadBody = JSONObject(body.toString())
       val capturedAt = uploadBody.optLong("timestamp", 0L)
       val packetId = uploadBody.optString("packetId", "")
-      if (capturedAt > 0L) {
-        val queueAgeMs = (System.currentTimeMillis() - capturedAt)
-          .coerceAtLeast(0L)
-          .coerceAtMost(MAX_PENDING_AGE_MS)
-        uploadBody.put("clientQueueAgeMs", queueAgeMs)
-      }
       val sentAt = System.currentTimeMillis()
+      if (capturedAt > 0L) {
+        val age = decideGpsQueueAge(
+          capturedAtWallMs = capturedAt,
+          capturedElapsedRealtimeMs = body.optLong("capturedElapsedRealtimeMs", -1L),
+          capturedBootCount = body.optInt("capturedBootCount", -1),
+          currentWallMs = sentAt,
+          currentElapsedRealtimeMs = SystemClock.elapsedRealtime(),
+          currentBootCount = readBootCount(),
+          maxAgeMs = MAX_PENDING_AGE_MS
+        )
+        uploadBody.put("clientQueueAgeMs", age.ageMs)
+        uploadBody.put("clientQueueAgeSource", age.source)
+      }
+      uploadBody.remove("capturedElapsedRealtimeMs")
+      uploadBody.remove("capturedBootCount")
       prefs().edit().putLong(KEY_LAST_SENT_AT, sentAt).apply()
       OutputStreamWriter(connection.outputStream).use { writer ->
         writer.write(uploadBody.toString())
@@ -782,7 +830,7 @@ class ManeCombLocationService : Service(), LocationListener {
           val entry = entries.optJSONObject(index) ?: continue
           pendingLocations.addLast(entry)
         }
-        trimPendingLocationsLocked(System.currentTimeMillis())
+        trimPendingLocationsLocked()
         savePendingLocationsLocked()
       }
     } catch (error: Exception) {
@@ -794,12 +842,20 @@ class ManeCombLocationService : Service(), LocationListener {
     }
   }
 
-  private fun trimPendingLocationsLocked(now: Long) {
+  private fun trimPendingLocationsLocked() {
     var dropped = 0
+    val nowElapsedRealtimeMs = SystemClock.elapsedRealtime()
+    val bootCount = readBootCount()
 
+    // Wall-clock jumps and legacy/rebooted queues must never cause deletion.
+    // A bounded packet cap still protects storage when age cannot be proven.
     while (pendingLocations.isNotEmpty()) {
-      val capturedAt = pendingLocations.peekFirst()?.optLong("timestamp", 0L) ?: 0L
-      if (capturedAt <= 0L || now - capturedAt <= MAX_PENDING_AGE_MS) {
+      val head = pendingLocations.peekFirst() ?: break
+      val capturedElapsedMs = head.optLong("capturedElapsedRealtimeMs", -1L)
+      val capturedBootCount = head.optInt("capturedBootCount", -1)
+      if (bootCount < 0 || capturedBootCount != bootCount || capturedElapsedMs < 0L ||
+        nowElapsedRealtimeMs < capturedElapsedMs ||
+        nowElapsedRealtimeMs - capturedElapsedMs <= MAX_PENDING_AGE_MS) {
         break
       }
       pendingLocations.removeFirst()
