@@ -96,6 +96,7 @@ describe('cola offline de Control', () => {
     expect(replay.type).toBe('vehicle:location');
     if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
     expect(replay.payload.clientQueueAgeMs).toBe(30 * 60 * 1000);
+    expect(replay.payload.clientQueueAgeSource).toBe('wall_clock_fallback');
     expect(replay.payload.timestamp).toBe(operation.payload.timestamp);
   });
 
@@ -115,6 +116,62 @@ describe('cola offline de Control', () => {
     expect(replay.type).toBe('vehicle:location');
     if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
     expect(replay.payload.clientQueueAgeMs).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it('usa edad monotónica en el mismo runtime aunque el reloj avance o retroceda 15 minutos', async () => {
+    const queued = await enqueuePendingSyncOperation({
+      type: 'vehicle:location',
+      payload: {
+        vehicleId: 'vehicle-101',
+        coordinates: { latitude: 19.31, longitude: -98.24 },
+        timestamp: '2026-08-10T01:00:00.000Z',
+      },
+    });
+    expect(queued.type).toBe('vehicle:location');
+    if (queued.type !== 'vehicle:location') throw new Error('GPS no encolado');
+    expect(typeof queued.queuedMonotonicMs).toBe('number');
+    const queuedAtMs = Date.parse(queued.createdAt);
+    const afterTenMinutes = (queued.queuedMonotonicMs as number) + 10 * 60 * 1000;
+    for (const jumpedWallClock of [queuedAtMs - 15 * 60 * 1000, queuedAtMs + 15 * 60 * 1000]) {
+      const replay = hydratePendingSyncOperationForReplay(queued, jumpedWallClock, afterTenMinutes);
+      if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
+      expect(replay.payload.clientQueueAgeMs).toBe(10 * 60 * 1000);
+      expect(replay.payload.clientQueueAgeSource).toBe('monotonic');
+      expect(replay.payload.timestamp).toBe(queued.payload.timestamp);
+    }
+  });
+
+  it('degrada a fallback después de un process death, o ante metadata legacy e inválida', async () => {
+    const queued = await enqueuePendingSyncOperation({
+      type: 'vehicle:location',
+      payload: {
+        vehicleId: 'vehicle-101',
+        coordinates: { latitude: 19.31, longitude: -98.24 },
+      },
+    });
+    if (queued.type !== 'vehicle:location') throw new Error('GPS no encolado');
+    const clock = Date.parse(queued.createdAt);
+    const previousRuntime = { ...queued, queueRuntimeId: 'previous-process' };
+    const legacy = { ...queued, queuedMonotonicMs: undefined, queueRuntimeId: undefined };
+    const invalidMonotonic = { ...queued, queuedMonotonicMs: Number.MAX_SAFE_INTEGER };
+    for (const operation of [previousRuntime, legacy, invalidMonotonic]) {
+      const replay = hydratePendingSyncOperationForReplay(operation, clock + 20 * 60 * 1000, 10);
+      if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
+      expect(replay.payload.clientQueueAgeSource).toBe('wall_clock_fallback');
+      expect(replay.payload.clientQueueAgeMs).toBe(20 * 60 * 1000);
+    }
+  });
+
+  it('no envía metadata interna de runtime dentro del payload GPS', async () => {
+    const queued = await enqueuePendingSyncOperation({
+      type: 'vehicle:location',
+      payload: { vehicleId: 'vehicle-101', coordinates: { latitude: 19.31, longitude: -98.24 } },
+    });
+    if (queued.type !== 'vehicle:location') throw new Error('GPS no encolado');
+    const replay = hydratePendingSyncOperationForReplay(queued);
+    if (replay.type !== 'vehicle:location') throw new Error('GPS replay perdido');
+    expect(JSON.stringify(replay.payload)).not.toContain('queueRuntimeId');
+    expect(JSON.stringify(replay.payload)).not.toContain('queuedMonotonicMs');
   });
 
   it('no pierde acciones cuando varias se encolan al mismo tiempo', async () => {

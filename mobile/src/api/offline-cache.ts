@@ -158,7 +158,11 @@ export type PendingSyncOperation =
         packetId?: string | null;
         sessionId?: string | null;
         clientQueueAgeMs?: number | null;
+        clientQueueAgeSource?: 'monotonic' | 'wall_clock_fallback' | null;
       };
+      /** Internal-only evidence. Not sent as part of the location API payload. */
+      queuedMonotonicMs?: number | null;
+      queueRuntimeId?: string | null;
     };
 
 function safeJsonParse<T>(value: string | null): T | null {
@@ -173,6 +177,16 @@ function safeJsonParse<T>(value: string | null): T | null {
   }
 }
 
+// One module instance = one monotonic clock continuity boundary. A process death
+// or JS reload creates a new identity, so restored GPS queues fail closed.
+const QUEUE_RUNTIME_ID = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+
+function readMonotonicNowMs(): number | null {
+  if (typeof performance === 'undefined' || typeof performance.now !== 'function') return null;
+  const value = performance.now();
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
 function createOperationId(type: string) {
   return `${type}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -180,21 +194,33 @@ function createOperationId(type: string) {
 export function hydratePendingSyncOperationForReplay(
   operation: PendingSyncOperation,
   nowMs = Date.now(),
+  monotonicNowMs: number | null = readMonotonicNowMs(),
 ): PendingSyncOperation {
   if (operation.type !== 'vehicle:location') {
     return operation;
   }
 
+  const capturedMonotonicMs = operation.queuedMonotonicMs;
+  const sameRuntime = operation.queueRuntimeId === QUEUE_RUNTIME_ID;
+  const monotonicContinuity = sameRuntime
+    && typeof capturedMonotonicMs === 'number'
+    && Number.isFinite(capturedMonotonicMs)
+    && typeof monotonicNowMs === 'number'
+    && Number.isFinite(monotonicNowMs)
+    && monotonicNowMs >= capturedMonotonicMs;
   const createdAtMs = new Date(operation.createdAt).getTime();
-  const elapsedMs = Number.isFinite(createdAtMs)
-    ? Math.min(MAX_LOCATION_QUEUE_AGE_MS, Math.max(0, nowMs - createdAtMs))
-    : 0;
+  const elapsedMs = monotonicContinuity
+    ? Math.min(MAX_LOCATION_QUEUE_AGE_MS, monotonicNowMs - capturedMonotonicMs)
+    : Number.isFinite(createdAtMs)
+      ? Math.min(MAX_LOCATION_QUEUE_AGE_MS, Math.max(0, nowMs - createdAtMs))
+      : 0;
 
   return {
     ...operation,
     payload: {
       ...operation.payload,
       clientQueueAgeMs: elapsedMs,
+      clientQueueAgeSource: monotonicContinuity ? 'monotonic' : 'wall_clock_fallback',
     },
   };
 }
@@ -334,9 +360,9 @@ export async function clearOfflineCache() {
 export async function loadPendingSyncQueue() {
   // Una lectura pública observa únicamente un estado ya confirmado. No debe
   // adelantar una mutación en vuelo y reportar un pendingSyncCount obsoleto.
-  // Para GPS, la misma lectura es el boundary de replay: deriva edad de cola a
-  // partir de `createdAt` justo antes de enviar, sin confiar en el reloj servidor
-  // ni congelar la edad dentro del payload persistido.
+  // Para GPS, el replay usa duracion monotónica solo dentro del mismo runtime.
+  // Tras process death, reload o datos legacy, declara fallback de pared en vez
+  // de fingir continuidad y deja al backend decidir elegibilidad live.
   const queue = await serializePendingSyncMutation(readPendingSyncQueueUnsafe);
   const nowMs = Date.now();
   return queue.map((operation) => hydratePendingSyncOperationForReplay(operation, nowMs));
@@ -358,6 +384,9 @@ export async function enqueuePendingSyncOperation(
       id: createOperationId(operation.type),
       createdAt: new Date().toISOString(),
       attempts: 0,
+      ...(operation.type === 'vehicle:location'
+        ? { queuedMonotonicMs: readMonotonicNowMs(), queueRuntimeId: QUEUE_RUNTIME_ID }
+        : {}),
     } as PendingSyncOperation);
     if (!nextOperation) {
       throw new Error('La actualización de perfil no contiene campos self-service permitidos.');
