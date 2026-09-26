@@ -38,6 +38,17 @@ function messageStatus(status: string | undefined) {
   }
 }
 
+function messageStatusLabel(status: string | undefined) {
+  switch (status) {
+    case 'sending': return 'Enviando';
+    case 'sent': return 'Enviado';
+    case 'delivered': return 'Entregado';
+    case 'read': return 'Leído';
+    case 'failed': return 'No enviado';
+    default: return '';
+  }
+}
+
 function conversationDisplayName(conversation: CommunicationConversation, userId: string | null) {
   return getPeerParticipant(conversation, userId)?.name || conversation.title || 'Conversación';
 }
@@ -137,7 +148,7 @@ export function PortalCommunicationScreen() {
     );
     return contacts.filter((contact) => {
       if (contact.id === userId || contact.deletedAt || contact.userStatus === 'suspended') return false;
-      if (existingPeers.has(contact.id) && !normalized) return false;
+      if (existingPeers.has(contact.id)) return false;
       if (!normalized) return true;
       return `${contact.name} ${contact.email || ''}`.toLowerCase().includes(normalized);
     });
@@ -339,7 +350,7 @@ export function PortalCommunicationScreen() {
                     Usa tu contraseña de ManeComb. La contraseña no se guarda en el navegador.
                   </div>
                   <div className="portal-comms-e2ee-row">
-                    <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Contraseña" autoComplete="current-password" />
+                    <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Contraseña" aria-label="Contraseña para desbloquear cifrado" autoComplete="current-password" />
                     <button type="button" disabled={e2ee.status === 'working'} onClick={() => void handleEncryptionAction()}>
                       {e2ee.status === 'working' ? 'Procesando…' : e2ee.status === 'setup_required' ? 'Activar' : 'Restaurar'}
                     </button>
@@ -347,7 +358,7 @@ export function PortalCommunicationScreen() {
                 </div>
               ) : null}
 
-              <div className="portal-comms-messages" aria-live="polite">
+              <div className="portal-comms-messages" role="log" aria-label="Historial de mensajes">
                 {selectedBucket?.pageInfo?.hasMore ? (
                   <button className="portal-comms-load-more" type="button" disabled={selectedBucket.loading} onClick={() => void usePortalCommunicationStore.getState().loadMore(selectedConversation.id)}>
                     {selectedBucket.loading ? 'Cargando…' : 'Mensajes anteriores'}
@@ -364,7 +375,7 @@ export function PortalCommunicationScreen() {
                       {message.kind === 'video' && message.videoUrl ? <AuthenticatedCommunicationMedia kind="video" source={message.videoUrl} /> : null}
                       {message.kind === 'audio' && message.audioUrl ? <AuthenticatedCommunicationMedia kind="audio" source={message.audioUrl} /> : null}
                       {body ? <p className="portal-comms-message-text">{body}</p> : null}
-                      <div className="portal-comms-message-meta" aria-label={own && status ? `Estado ${status}` : undefined}>
+                      <div className="portal-comms-message-meta" aria-label={own && status ? `Estado ${messageStatusLabel(status)}` : undefined}>
                         <span>{formatMessageTime(message.createdAt)}</span>
                         {own ? <span>{messageStatus(status)}</span> : null}
                       </div>
