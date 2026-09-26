@@ -10,6 +10,7 @@ const dashboardTypes = read('features/portal/dashboard/dashboard.types.ts');
 const globalCss = read('src/global.css');
 const main = read('src/main.tsx');
 const operationsMap = read('features/portal/components/operations-map.tsx');
+const operationalUnitCard = read('features/portal/dashboard/components/dashboard-operational-unit-card.tsx');
 const operationsPolish = read('src/operations-mobile-polish.css');
 
 const requireText = (source, text, message) => {
@@ -30,7 +31,13 @@ requireText(dashboard, 'nativeID="operations-runtime-status"', 'Operaciones debe
 requireText(dashboard, "'Reconectando seguimiento en vivo…'", 'Socket desconectado debe degradar a un estado visible y compacto.');
 requireText(dashboard, "'No hay unidades disponibles.'", 'El caso 0 unidades debe tener estado vacío explícito.');
 requireText(dashboard, 'operationalResource.status', 'Carga/error deben depender del ResourceState canónico.');
+requireText(dashboard, 'sheetOperationalVehicles', 'La unidad seleccionada debe subir al inicio del sheet móvil.');
+requireText(dashboard, "current === 'collapsed' ? 'medium' : current", 'Tocar una unidad debe revelar el sheet si estaba colapsado.');
 requireText(dashboardTypes, "'GPS_LOST'", 'OperationsFilter debe admitir el filtro GPS perdido.');
+
+requireText(operationalUnitCard, 'operationalUnit?.driver?.name', 'La unidad seleccionada debe mostrar conductor canónico.');
+requireText(operationalUnitCard, 'operationalUnit?.gps.speedKmh', 'La unidad seleccionada debe mostrar velocidad canónica.');
+requireText(operationalUnitCard, 'gpsDetail', 'La unidad seleccionada debe mostrar vigencia GPS.');
 
 requireText(globalCss, 'min-height: 44px;', 'El Portal debe conservar targets táctiles móviles de al menos 44px.');
 requireText(operationsPolish, 'min-height: 44px !important;', 'Los controles operativos no deben reducir el target táctil por debajo de 44px.');
