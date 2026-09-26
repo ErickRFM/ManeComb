@@ -14,6 +14,7 @@ import { usePortalStore } from '../store/use-portal-store';
 
 export function PortalBillingScreen() {
   const [message, setMessage] = useState<string | null>(null);
+  const [downloadingInvoiceId, setDownloadingInvoiceId] = useState<string | null>(null);
   const { invoices, billingResource, loadBilling } = usePortalStore(
     useShallow((state) => ({
       invoices: state.invoices,
@@ -23,8 +24,10 @@ export function PortalBillingScreen() {
   );
 
   const downloadInvoice = async (invoice: PortalInvoice) => {
+    if (downloadingInvoiceId) return;
     const url = resolveInvoiceDownloadUrl(invoice);
     setMessage(null);
+    setDownloadingInvoiceId(invoice.id);
 
     try {
       if (Platform.OS !== 'web' || typeof document === 'undefined') {
@@ -47,6 +50,8 @@ export function PortalBillingScreen() {
           ? getApiErrorMessage(error, 'El servidor no pudo entregar la factura.')
           : 'No se pudo abrir el enlace de descarga. Intenta nuevamente.'
       );
+    } finally {
+      setDownloadingInvoiceId(null);
     }
   };
 
@@ -76,7 +81,11 @@ export function PortalBillingScreen() {
             </Pressable>
           </View>
         ) : invoices.length ? (
-          <InvoiceList invoices={invoices} onDownload={(invoice) => { void downloadInvoice(invoice); }} />
+          <InvoiceList
+            invoices={invoices}
+            downloadingInvoiceId={downloadingInvoiceId}
+            onDownload={(invoice) => { void downloadInvoice(invoice); }}
+          />
         ) : billingResource.status === 'empty' ? (
           <EmptyState
             icon="file-document-outline"
