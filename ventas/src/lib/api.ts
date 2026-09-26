@@ -6,7 +6,6 @@ import type {
   PaginatedResult,
   PortalActivationKeysResponse,
   PortalAppInfo,
-  PortalAppVersion,
   PortalInvoice,
   PortalOnboarding,
   PortalOverview,
@@ -608,17 +607,3 @@ export async function updateIncidentStatusRequest(incidentId: string, status: 'o
   );
 }
 
-export async function updateAppInfoRequest(payload: Partial<PortalAppInfo> & { versionHistory?: PortalAppVersion[] }) {
-  return await unwrapData<PortalAppInfo>(apiClient.patch('/app/info', payload));
-}
-
-export type DeviceVersionStats = {
-  total: number;
-  versions: Record<string, number>;
-  mostUsedVersion: string | null;
-  lastPublication: string | null;
-};
-
-export async function getDeviceVersionStatsRequest() {
-  return await unwrapData<DeviceVersionStats>(apiClient.get('/app/device-stats'));
-}
