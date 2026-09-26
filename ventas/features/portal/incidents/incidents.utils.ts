@@ -18,3 +18,28 @@ export function getTypeIcon(type: string) {
   if (/seguridad|robo|asalto/i.test(type)) return 'shield-alert-outline';
   return 'alert-circle-outline';
 }
+
+
+const INCIDENT_TYPE_LABELS: Record<string, string> = {
+  accident: 'Accidente',
+  collision: 'Colisión',
+  mechanical_failure: 'Falla mecánica',
+  route_deviation: 'Desvío de ruta',
+  security: 'Seguridad',
+  robbery: 'Robo o asalto',
+  passenger_incident: 'Incidente con pasajero',
+  customer_complaint: 'Queja de cliente',
+  medical_emergency: 'Emergencia médica',
+  sos: 'Alerta SOS',
+};
+
+export function formatIncidentType(type: string) {
+  const normalized = String(type || '').trim();
+  if (!normalized) return 'Incidencia';
+  const direct = INCIDENT_TYPE_LABELS[normalized.toLowerCase()];
+  if (direct) return direct;
+  return normalized
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+}
