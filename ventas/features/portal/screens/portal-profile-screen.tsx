@@ -150,7 +150,7 @@ export function PortalProfileScreen() {
       const response = await apiClient.delete<{ ok: boolean; message?: string }>('/users/me/sessions/others');
       setSessionMessage(response.data.message || 'Las demás sesiones fueron cerradas.');
       setRevokeAllOpen(false);
-      await loadAll();
+      await loadAll({ force: true });
     } catch (error) {
       setSessionMessage(
         isAxiosError(error)
