@@ -1,6 +1,7 @@
 import axios, { AxiosHeaders, isAxiosError, type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type {
   CheckpointVisit,
+  CommercialPublicProfile,
   DocumentItem,
   Incident,
   PaginatedResult,
@@ -301,6 +302,10 @@ export async function getCommercialPlansRequest() {
     throw new Error('El backend devolvio un catalogo de planes invalido.');
   }
   return plans;
+}
+
+export async function getCommercialProfileRequest() {
+  return await unwrapData<CommercialPublicProfile>(apiClient.get('/commercial/profile'));
 }
 
 export async function getRuntimeHealthRequest() {
