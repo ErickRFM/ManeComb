@@ -241,7 +241,8 @@ function applyCamera(
     }
 
     const camera = map.cameraForBounds(bounds, { maxZoom: MAX_AUTO_FIT_ZOOM, padding });
-    if (camera?.center && Number.isFinite(camera.zoom)) {
+    const cameraZoom = Number(camera?.zoom);
+    if (camera?.center && Number.isFinite(cameraZoom)) {
       // El centro operativo no debe arrancar a escala continental por un outlier
       // GPS. Se conserva el centro calculado por Mapbox, pero el auto-encuadre se
       // limita a una escala regional. El usuario siempre puede alejar manualmente.
@@ -249,7 +250,7 @@ function applyCamera(
         center: camera.center,
         duration: 550,
         easing: cameraEasing,
-        zoom: Math.max(minZoom, Math.min(MAX_AUTO_FIT_ZOOM, camera.zoom)),
+        zoom: Math.max(minZoom, Math.min(MAX_AUTO_FIT_ZOOM, cameraZoom)),
       });
       return true;
     }
@@ -464,7 +465,7 @@ export const OperationsMap = React.memo(function OperationsMap({
     map.on('click', (event) => {
       onClickPointRef.current?.({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
     });
-    const markUserCamera = (event: mapboxgl.MapboxEvent<MouseEvent | TouchEvent | WheelEvent | undefined>) => {
+    const markUserCamera = (event: { originalEvent?: unknown }) => {
       if (event.originalEvent) setCameraMode('user');
     };
     map.on('dragstart', markUserCamera as never);
