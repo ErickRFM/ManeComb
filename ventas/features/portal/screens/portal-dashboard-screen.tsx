@@ -202,24 +202,21 @@ export function PortalDashboardScreen() {
   const activeSession = selectedVehicleSessions.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null;
   const latestSession = selectedVehicleSessions[0] || null;
   const selectedSession = history.find((session) => session.id === selectedSessionId) || latestSession || null;
-  const gpsLostCount = useMemo(
-    () => vehicles.filter((vehicle) => getGpsState(snapshotByVehicle.get(vehicle.id), sessionsByVehicle.get(vehicle.id)?.[0]).stale).length,
-    [sessionsByVehicle, snapshotByVehicle, vehicles]
-  );
   const operationsCounts = useMemo(() => {
-    const running = vehicles.filter((vehicle) => sessionsByVehicle.get(vehicle.id)?.some((session) => session.status === 'RUNNING')).length;
+    const running = vehicles.filter((vehicle) => snapshotByVehicle.get(vehicle.id)?.journey?.status === 'RUNNING').length;
     const stopped = vehicles.filter((vehicle) => snapshotByVehicle.get(vehicle.id)?.operationalState === 'stopped').length;
     const offRoute = vehicles.filter((vehicle) => Boolean(snapshotByVehicle.get(vehicle.id)?.route?.isOffRoute)).length;
-    return { ALL: vehicles.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute, GPS_LOST: gpsLostCount };
-  }, [gpsLostCount, sessionsByVehicle, snapshotByVehicle, vehicles]);
+    const gpsLost = vehicles.filter((vehicle) => snapshotByVehicle.get(vehicle.id)?.gps.connectionState === 'lost').length;
+    return { ALL: vehicles.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute, GPS_LOST: gpsLost };
+  }, [snapshotByVehicle, vehicles]);
   const operationalVehicles = useMemo(() => vehicles.filter((vehicle) => {
-    const session = sessionsByVehicle.get(vehicle.id)?.find((entry) => ['RUNNING', 'PAUSED'].includes(entry.status));
-    if (operationsFilter === 'RUNNING') return session?.status === 'RUNNING';
-    if (operationsFilter === 'STOPPED') return snapshotByVehicle.get(vehicle.id)?.operationalState === 'stopped';
-    if (operationsFilter === 'OFF_ROUTE') return Boolean(snapshotByVehicle.get(vehicle.id)?.route?.isOffRoute);
-    if (operationsFilter === 'GPS_LOST') return getGpsState(snapshotByVehicle.get(vehicle.id), sessionsByVehicle.get(vehicle.id)?.[0]).stale;
+    const unit = snapshotByVehicle.get(vehicle.id);
+    if (operationsFilter === 'RUNNING') return unit?.journey?.status === 'RUNNING';
+    if (operationsFilter === 'STOPPED') return unit?.operationalState === 'stopped';
+    if (operationsFilter === 'OFF_ROUTE') return Boolean(unit?.route?.isOffRoute);
+    if (operationsFilter === 'GPS_LOST') return unit?.gps.connectionState === 'lost';
     return true;
-  }), [operationsFilter, sessionsByVehicle, snapshotByVehicle, vehicles]);
+  }), [operationsFilter, snapshotByVehicle, vehicles]);
   const visibleOperationalUnits = useMemo(() => {
     const visibleIds = new Set(operationalVehicles.map((vehicle) => vehicle.id));
     return operationalUnits.filter((unit) => visibleIds.has(unit.unitId));
