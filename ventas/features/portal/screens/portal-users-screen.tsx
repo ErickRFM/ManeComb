@@ -89,7 +89,9 @@ export function PortalUsersScreen() {
 
   const confirmEdit = async () => {
     if (!editTarget || !canManageUsers) return;
-    const result = await updateUser(editTarget.id, { userStatus: editStatus, status: editStatus === 'suspended' ? 'offline' : 'online' });
+    // userStatus is administrative authority. Realtime presence (online/offline)
+    // is owned by authenticated sessions + Socket.IO and must never be fabricated here.
+    const result = await updateUser(editTarget.id, { userStatus: editStatus });
     setMessage(result.ok ? 'Estado actualizado.' : result.message || 'No fue posible actualizar.');
     if (result.ok) setEditTarget(null);
   };

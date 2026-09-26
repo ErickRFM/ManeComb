@@ -8,6 +8,8 @@ const incidents = read('features/portal/screens/portal-incidents-screen.tsx');
 const documents = read('features/portal/documents/portal-documents-admin.tsx');
 const users = read('features/portal/screens/portal-users-screen.tsx');
 const units = read('features/portal/screens/portal-units-screen.tsx');
+const routes = read('features/portal/screens/portal-routes-screen.tsx');
+const routeLearning = read('features/portal/screens/route-learning-v3-review.tsx');
 const profile = read('features/portal/screens/portal-profile-screen.tsx');
 const vehiclePanel = read('features/portal/dashboard/components/dashboard-vehicle-side-panel.tsx');
 const appMobile = read('features/portal/screens/portal-app-movil-screen.tsx');
@@ -20,6 +22,8 @@ const required = [
   [documents, "hasPortalPermission(user, 'documents')", 'Documentos debe autorizar acciones con documents.manage.'],
   [users, "hasPortalPermission(user, 'users')", 'Equipo debe autorizar acciones con users.manage.'],
   [units, "hasPortalPermission(user, 'vehicles')", 'Unidades debe autorizar acciones con vehicles.manage.'],
+  [routes, "hasPortalPermission(user, 'routes')", 'Rutas debe autorizar acciones con routes.manage.'],
+  [routeLearning, "hasPortalPermission(user, 'routes')", 'Route Learning debe autorizar revisión con routes.manage.'],
   [profile, "hasPortalPermission(user, 'users')", 'Datos de empresa deben autorizarse con users.manage.'],
   [profile, 'const savePersonalProfile = async () =>', 'Perfil personal debe tener guardado independiente.'],
   [profile, 'const saveCompanyProfile = async () =>', 'Datos de empresa deben tener guardado independiente.'],
@@ -41,6 +45,9 @@ const forbidden = [
   [documents, "['owner', 'admin', 'supervisor'].includes(user.role)", 'Documentos volvió a autorizar por rol hardcodeado.'],
   [users, "['owner', 'admin'].includes(user.role)", 'Equipo volvió a autorizar por rol hardcodeado.'],
   [units, "['owner', 'admin'].includes(user.role)", 'Unidades volvió a autorizar por rol hardcodeado.'],
+  [routes, "['owner', 'admin'].includes(user.role)", 'Rutas volvió a autorizar por rol hardcodeado.'],
+  [routeLearning, "['owner', 'admin'].includes(user.role)", 'Route Learning volvió a autorizar por rol hardcodeado.'],
+  [routes, "latitude: 0, longitude: 0", 'Rutas volvió a inventar coordenadas 0,0 como fallback.'],
   [profile, 'const saveProfile = async () =>', 'Perfil volvió a mezclar identidad personal y empresa en un solo guardado.'],
   [appMobile, '<PortalAppAdmin', 'El Portal empresarial volvió a exponer el editor global del APK.'],
   [appTabs, "'admin'", 'La navegación de App Móvil volvió a exponer un tab admin global a empresas.'],

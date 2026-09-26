@@ -1,7 +1,5 @@
 import type { IconName } from './types';
 
-export const SUPPORT_EMAIL = 'ventas@manecomb.com';
-export const SUPPORT_PHONE = '81812345678';
 export const SYSTEM_STATUS_URL = 'https://manecomb.onrender.com/api/health';
 export const PUBLIC_DEMO_PLAN_ID = 'starter-2';
 
@@ -169,26 +167,26 @@ export const trustMetrics: Array<{
   color: string;
 }> = [
   {
-    value: 'Roles + tenant',
-    label: 'Acceso separado por empresa',
+    value: 'Empresa aislada',
+    label: 'Cada empresa ve solo su operación',
     icon: 'shield-account-outline',
     color: neonPalette.violet,
   },
   {
-    value: 'Sesión renovable',
-    label: 'Continuidad de acceso',
+    value: 'Permisos claros',
+    label: 'Usuarios y accesos bajo tu control',
     icon: 'shield-refresh-outline',
     color: neonPalette.cyan,
   },
   {
-    value: 'Orden protegida',
-    label: 'Idempotencia en checkout',
+    value: 'Pago protegido',
+    label: 'Una orden no genera cobros duplicados',
     icon: 'credit-card-check-outline',
     color: neonPalette.mint,
   },
   {
     value: 'Portal + app',
-    label: 'Una autoridad operativa',
+    label: 'La misma información en oficina y ruta',
     icon: 'monitor-cellphone',
     color: neonPalette.accent,
   },

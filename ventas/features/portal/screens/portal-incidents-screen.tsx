@@ -3,6 +3,8 @@ import { Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { useShallow } from 'zustand/react/shallow';
 import { ConfirmModal } from '@/src/components/ui/confirm-modal';
+import { EmptyState } from '@/src/components/ui/empty-state';
+import { SkeletonBlock } from '@/src/components/ui/skeleton';
 import { useAppStore } from '@/src/store/use-app-store';
 import type { Incident } from '@/src/types/app';
 import { PortalSectionCard } from '../cards';
@@ -19,11 +21,12 @@ export function PortalIncidentsScreen() {
   const { user } = useAppStore(
     useShallow((state) => ({ user: state.user }))
   );
-  const { incidents, isSubmitting, loadIncidents, updateIncidentStatus } = usePortalStore(
+  const { incidents, isSubmitting, loadIncidents, resource, updateIncidentStatus } = usePortalStore(
     useShallow((state) => ({
       incidents: state.incidents,
       isSubmitting: state.isSubmitting,
       loadIncidents: state.loadIncidents,
+      resource: state.resources.incidents,
       updateIncidentStatus: state.updateIncidentStatus,
     }))
   );
@@ -95,7 +98,28 @@ export function PortalIncidentsScreen() {
         </PortalSectionCard>
       ) : null}
 
-      {detailTarget ? (
+      {resource.status === 'loading' && !resource.lastSuccessfulAt ? (
+        <PortalSectionCard title="Incidencias" subtitle="Cargando reportes operativos">
+          <View style={{ gap: 10 }}>
+            <SkeletonBlock height={74} />
+            <SkeletonBlock height={74} />
+            <SkeletonBlock height={74} />
+          </View>
+        </PortalSectionCard>
+      ) : resource.status === 'error' && !incidents.length ? (
+        <PortalSectionCard title="Incidencias">
+          <EmptyState
+            icon="cloud-alert-outline"
+            title="No pudimos cargar las incidencias"
+            description={resource.errorMessage || 'Revisa tu conexión e intenta nuevamente.'}
+          />
+          <View style={{ alignItems: 'center', marginTop: 12 }}>
+            <PortalButton icon="refresh" onPress={() => void loadIncidents()} size="sm" variant="secondary">
+              Reintentar
+            </PortalButton>
+          </View>
+        </PortalSectionCard>
+      ) : detailTarget ? (
         <PortalIncidentDetails
           canManage={canManage}
           incident={detailTarget}
@@ -111,7 +135,9 @@ export function PortalIncidentsScreen() {
         <PortalIncidentsList
           filterStatus={filterStatus}
           incidents={filtered}
-          message={message}
+          message={resource.status === 'stale'
+            ? resource.errorMessage || 'No se pudo actualizar. Mostrando la última información disponible.'
+            : message}
           onFilterChange={setFilterStatus}
           onSelect={setDetailTarget}
         />

@@ -39,10 +39,11 @@ const PAYMENT_STEPS = [
 ];
 
 export function PortalPaymentsScreen() {
-  const { error, isLoading, subscription } = usePortalStore(
+  const { error, isLoading, overview, subscription } = usePortalStore(
     useShallow((state) => ({
       error: state.error,
       isLoading: state.isLoading,
+      overview: state.overview,
       subscription: state.subscription,
     }))
   );
@@ -50,8 +51,14 @@ export function PortalPaymentsScreen() {
   const status = subscription?.status || '';
   const canRetry = canRetryCommercialPayment(status);
   const isPending = isCommercialPaymentPending(status);
-  const nextChargeDate = subscription?.currentPeriodEnd;
+  const nextBillingDate = subscription?.nextBillingAt || subscription?.currentPeriodEnd;
+  const billingDateLabel = subscription?.nextBillingAt
+    ? 'Próximo cobro'
+    : status.toLowerCase().includes('trial')
+      ? 'Fin de prueba'
+      : 'Fin del periodo';
   const nextChargeAmount = subscription?.monthlyPrice;
+  const commercialReference = overview?.latestOrder?.referenceCode || subscription?.id || '';
   const [message, setMessage] = useState<string | null>(null);
 
   const retryPayment = () => {
@@ -81,7 +88,7 @@ export function PortalPaymentsScreen() {
             <View style={styles.identity}>
               <Text style={styles.kicker}>Plan contratado</Text>
               <Text style={styles.planName}>{subscription.planName}</Text>
-              <Text selectable style={styles.reference}>Referencia de cuenta: {subscription.id}</Text>
+              <Text selectable style={styles.reference}>Referencia: {commercialReference}</Text>
             </View>
             <StatusBadge label={formatPortalStatus(status)} tone={getPortalStatusTone(status)} />
           </View>
@@ -108,8 +115,8 @@ export function PortalPaymentsScreen() {
               <Text style={styles.factValue}>{formatDate(subscription.currentPeriodStart, { fallback: 'Sin registro' })}</Text>
             </View>
             <View style={styles.fact}>
-              <Text style={styles.factLabel}>Próximo cobro</Text>
-              <Text style={styles.factValue}>{nextChargeDate ? formatDate(nextChargeDate, { fallback: 'Sin fecha' }) : 'Sin fecha'}</Text>
+              <Text style={styles.factLabel}>{billingDateLabel}</Text>
+              <Text style={styles.factValue}>{nextBillingDate ? formatDate(nextBillingDate, { fallback: 'Sin fecha' }) : 'Sin fecha'}</Text>
             </View>
             <View style={styles.fact}>
               <Text style={styles.factLabel}>Capacidad disponible</Text>

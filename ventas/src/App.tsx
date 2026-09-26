@@ -4,7 +4,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { Redirect, RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
-import { PortalCommunicationRuntime } from '@/features/portal/communication/communication-runtime';
 import { Typography } from '@/constants/theme';
 import {
   canAccessPortal,
@@ -39,6 +38,13 @@ const PortalUsersScreen = lazy(() => import('@/features/portal/screens/portal-us
 const PortalDocumentsScreen = lazy(() => import('@/features/portal/screens/portal-documents-screen').then((module) => ({ default: module.PortalDocumentsScreen })));
 const PortalIncidentsScreen = lazy(() => import('@/features/portal/screens/portal-incidents-screen').then((module) => ({ default: module.PortalIncidentsScreen })));
 const PortalAppMovilScreen = lazy(() => import('@/features/portal/screens/portal-app-movil-screen').then((module) => ({ default: module.PortalAppMovilScreen })));
+const PortalCommunicationRuntime = lazy(() => import('@/features/portal/communication/communication-runtime').then((module) => ({ default: module.PortalCommunicationRuntime })));
+
+function PortalRuntime() {
+  const pathname = usePathname();
+  if (!pathname.startsWith('/portal')) return null;
+  return <PortalCommunicationRuntime />;
+}
 
 function BootScreen() {
   return (
@@ -69,23 +75,40 @@ function StaticPage({ title, body }: { title: string; body: string }) {
  */
 function OperationalPortalGate({ children }: { children: ReactNode }) {
   const pathname = usePathname().replace(/\/+$/, '') || '/portal';
-  const { error, isLoading, loadOverview, overview, subscription } = usePortalStore(
+  const { accountResource, loadOverview, overview, subscription } = usePortalStore(
     useShallow((state) => ({
-      error: state.error,
-      isLoading: state.isLoading,
+      accountResource: state.resources.account,
       loadOverview: state.loadOverview,
       overview: state.overview,
       subscription: state.subscription,
     }))
   );
   const resolvedSubscription = subscription || overview?.subscription || null;
-  const authorityReady = Boolean(subscription || overview || error);
+  const authorityReady = Boolean(subscription || overview);
 
   useEffect(() => {
-    if (!authorityReady && !isLoading) {
+    if (!authorityReady && accountResource.status === 'idle') {
       void loadOverview();
     }
-  }, [authorityReady, isLoading, loadOverview]);
+  }, [accountResource.status, authorityReady, loadOverview]);
+
+  if (!authorityReady && accountResource.status === 'error') {
+    return (
+      <View style={styles.portalGateError} accessibilityRole="alert">
+        <Text style={styles.staticTitle}>No pudimos validar tu cuenta</Text>
+        <Text style={styles.staticBody}>
+          {accountResource.errorMessage || 'No fue posible consultar el estado de tu suscripción. Intenta nuevamente.'}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Reintentar validación de cuenta"
+          onPress={() => void loadOverview()}
+          style={styles.portalGateRetry}>
+          <Text style={styles.portalGateRetryText}>Reintentar</Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   if (!authorityReady) {
     return <BootScreen />;
@@ -255,7 +278,9 @@ export function App() {
 
   return (
     <RouterProvider>
-      <PortalCommunicationRuntime />
+      <Suspense fallback={null}>
+        <PortalRuntime />
+      </Suspense>
       <Suspense fallback={<BootScreen />}>
         <Routes />
       </Suspense>
@@ -315,6 +340,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '900',
     marginTop: 12,
+  },
+  portalGateError: {
+    alignItems: 'flex-start',
+    alignSelf: 'center',
+    backgroundColor: '#0B1020',
+    borderColor: '#27324A',
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    justifyContent: 'center',
+    margin: 24,
+    maxWidth: 620,
+    padding: 24,
+    width: '100%',
+  },
+  portalGateRetry: {
+    alignItems: 'center',
+    backgroundColor: '#FF4D7D',
+    borderRadius: 12,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 18,
+  },
+  portalGateRetryText: {
+    color: '#FFFFFF',
+    fontFamily: Typography.body,
+    fontSize: 14,
+    fontWeight: '900',
   },
   operationalPanel: {
     alignSelf: 'center',

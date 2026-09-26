@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocalSearchParams } from '@/src/navigation/router';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
@@ -10,12 +11,8 @@ import { useAppStore } from '@/src/store/use-app-store';
 import { formatDate } from '@/src/utils/format';
 import type { DocumentItem } from '@/src/types/app';
 import {
-  deleteDocumentRequest,
   downloadDocumentRequest,
   getDocumentHistoryRequest,
-  getDocumentsRequest,
-  reviewDocumentRequest,
-  updateDocumentRequest,
 } from '../api';
 import { PortalSectionCard } from '../cards';
 import { PortalContentModal } from '../components/portal-content-modal';
@@ -23,6 +20,7 @@ import { PortalLayout } from '../components/portal-layout';
 import { PortalDataList, PortalDataRow } from '../components/portal-data-list';
 import { PortalPagination } from '../components/portal-pagination';
 import { hasPortalPermission } from '../utils/access';
+import { usePortalStore } from '../store/use-portal-store';
 import { styles } from './documents.styles';
 import { getDocumentSummary, getStatusMeta, isDocumentExpired, matchesDocumentFilter } from './documents.utils';
 
@@ -31,7 +29,21 @@ type Dialog = 'review' | 'edit' | 'delete' | 'detail' | 'history' | null;
 
 const PAGE_SIZE = 8;
 
+function isValidOptionalIsoDate(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return false;
+  const [year, month, day] = normalized.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
 export function DocumentsAdminScreen() {
+  const params = useLocalSearchParams<{ driverId?: string | string[]; vehicleId?: string | string[] }>();
+  const requestedDriverId = Array.isArray(params.driverId) ? params.driverId[0] : params.driverId;
+  const requestedVehicleId = Array.isArray(params.vehicleId) ? params.vehicleId[0] : params.vehicleId;
   const { loadUsers, loadVehicles, user, users, vehicles } = useAppStore(useShallow((state) => ({
     loadUsers: state.loadUsers,
     loadVehicles: state.loadVehicles,
@@ -39,9 +51,23 @@ export function DocumentsAdminScreen() {
     users: state.users,
     vehicles: state.vehicles,
   })));
-  const [documents, setDocuments] = useState<DocumentItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const {
+    deleteDocument,
+    documents,
+    isSubmitting: submitting,
+    loadDocuments,
+    resource,
+    reviewDocument,
+    updateDocument,
+  } = usePortalStore(useShallow((state) => ({
+    deleteDocument: state.deleteDocument,
+    documents: state.documents,
+    isSubmitting: state.isSubmitting,
+    loadDocuments: state.loadDocuments,
+    resource: state.resources.documents,
+    reviewDocument: state.reviewDocument,
+    updateDocument: state.updateDocument,
+  })));
   const [message, setMessage] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
@@ -56,27 +82,20 @@ export function DocumentsAdminScreen() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [page, setPage] = useState(1);
   const canManage = hasPortalPermission(user, 'documents');
-  const editDateValid = !expiresAt.trim() || /^\d{4}-\d{2}-\d{2}$/.test(expiresAt.trim());
+  const editDateValid = isValidOptionalIsoDate(expiresAt);
   const dialogConfirmDisabled =
     (dialog === 'review' && reviewStatus === 'rejected' && !notes.trim()) ||
     (dialog === 'delete' && notes.trim().length < 3) ||
     (dialog === 'edit' && (!name.trim() || !editDateValid));
 
   const refresh = async (showDeleted = includeDeleted) => {
-    setLoading(true);
-    try {
-      setDocuments(await getDocumentsRequest(showDeleted));
-      setMessage(null);
-    } catch {
-      setMessage('No fue posible cargar los documentos.');
-    } finally {
-      setLoading(false);
-    }
+    setMessage(null);
+    await loadDocuments({ includeDeleted: showDeleted });
   };
 
   useEffect(() => {
-    void Promise.all([loadUsers(), loadVehicles(), refresh()]);
-  }, []);
+    void Promise.all([loadUsers(), loadVehicles(), loadDocuments()]);
+  }, [loadDocuments, loadUsers, loadVehicles]);
 
   const hydrated = useMemo<HydratedDocument[]>(() => documents.map((document) => {
     const owner = document.ownerType === 'driver' ? users.find((entry) => entry.id === document.ownerId) : null;
@@ -94,7 +113,15 @@ export function DocumentsAdminScreen() {
     !document.deletedAt && document.ownerType === 'driver' && document.ownerId === entry.id
   )), [documents, users]);
   const summary = useMemo(() => getDocumentSummary(documents, missingDrivers.length), [documents, missingDrivers.length]);
-  const filtered = useMemo(() => hydrated.filter((document) => matchesDocumentFilter(document, filter, search)), [hydrated, filter, search]);
+  const filtered = useMemo(() => hydrated.filter((document) => {
+    if (requestedDriverId && !(document.ownerType === 'driver' && document.ownerId === requestedDriverId)) return false;
+    if (requestedVehicleId) {
+      const directVehicleDocument = document.ownerType === 'vehicle' && document.ownerId === requestedVehicleId;
+      const driver = document.ownerType === 'driver' ? users.find((entry) => entry.id === document.ownerId) : null;
+      if (!directVehicleDocument && driver?.vehicleId !== requestedVehicleId) return false;
+    }
+    return matchesDocumentFilter(document, filter, search);
+  }), [filter, hydrated, requestedDriverId, requestedVehicleId, search, users]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const visibleDocuments = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -133,20 +160,25 @@ export function DocumentsAdminScreen() {
       setMessage('No tienes permiso para modificar documentos.');
       return;
     }
-    setSubmitting(true);
-    try {
-      if (dialog === 'review') await reviewDocumentRequest(target.id, { reviewStatus, reviewNotes: notes.trim() });
-      if (dialog === 'edit') await updateDocumentRequest(target.id, { name: name.trim(), expiresAt });
-      if (dialog === 'delete') await deleteDocumentRequest(target.id, notes.trim());
-      setDialog(null);
-      setTarget(null);
-      await refresh();
-      setMessage('Operación documental completada.');
-    } catch {
-      setMessage('No fue posible completar la operación documental.');
-    } finally {
-      setSubmitting(false);
+
+    let result = { ok: false, message: 'No fue posible completar la operación documental.' };
+    if (dialog === 'review') {
+      result = await reviewDocument(target.id, { reviewStatus, reviewNotes: notes.trim() });
+    } else if (dialog === 'edit') {
+      result = await updateDocument(target.id, { name: name.trim(), expiresAt: expiresAt.trim() });
+    } else if (dialog === 'delete') {
+      result = await deleteDocument(target.id, notes.trim());
     }
+
+    if (!result.ok) {
+      setMessage(result.message || 'No fue posible completar la operación documental.');
+      return;
+    }
+
+    setDialog(null);
+    setTarget(null);
+    await refresh();
+    setMessage('Operación documental completada.');
   };
 
   const showHistory = async (document: HydratedDocument) => {
@@ -188,13 +220,19 @@ export function DocumentsAdminScreen() {
       <View style={styles.summaryGrid}>
         {[
           ['Activos', summary.total], ['Pendientes', summary.pending], ['Rechazados', summary.rejected],
-          ['Vencidos', summary.expired], ['Faltantes', summary.missing],
+          ['Vencidos', summary.expired], ['Conductores sin documentos', summary.missing],
         ].map(([label, value]) => <View key={String(label)} style={styles.summaryCard}>
           <Text style={styles.summaryValue}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text>
         </View>)}
       </View>
 
-      <PortalSectionCard title="Expediente documental" subtitle={message || `${filtered.length} resultados`}>
+      <PortalSectionCard
+        title="Expediente documental"
+        subtitle={message || (requestedDriverId
+          ? `Documentos de ${users.find((entry) => entry.id === requestedDriverId)?.name || 'conductor seleccionado'} · ${filtered.length} resultados`
+          : requestedVehicleId
+            ? `Documentos de la unidad seleccionada · ${filtered.length} resultados`
+            : `${filtered.length} resultados`)}>
         <View style={styles.filterRow}>
           <TextInput accessibilityLabel="Buscar documentos" value={search} onChangeText={setSearch} placeholder="Buscar conductor, unidad o documento" placeholderTextColor={palette.muted} style={styles.searchInput} />
           {filters.map((status) => <Pressable accessibilityRole="button" accessibilityState={{ selected: filter === status }} key={status} onPress={() => setFilter(status)} style={[styles.filterChip, filter === status ? styles.filterChipActive : undefined]}>
@@ -205,7 +243,25 @@ export function DocumentsAdminScreen() {
           </Pressable> : null}
         </View>
 
-        {loading ? <Text style={styles.docMeta}>Cargando documentos…</Text> : filtered.length ? <>
+        {resource.status === 'stale' ? (
+          <View style={styles.detailBox}>
+            <Text style={styles.docMeta}>No se pudo actualizar. Mostrando la última información disponible.</Text>
+          </View>
+        ) : null}
+        {resource.status === 'loading' && !resource.lastSuccessfulAt ? (
+          <Text style={styles.docMeta}>Cargando documentos…</Text>
+        ) : resource.status === 'error' && !documents.length ? (
+          <View style={styles.modalList}>
+            <EmptyState
+              icon="cloud-alert-outline"
+              title="No pudimos cargar los documentos"
+              description={resource.errorMessage || 'Revisa tu conexión e intenta nuevamente.'}
+            />
+            <Pressable accessibilityRole="button" onPress={() => void refresh()} style={styles.filterChip}>
+              <Text style={styles.filterChipText}>Reintentar</Text>
+            </Pressable>
+          </View>
+        ) : filtered.length ? <>
           <PortalDataList>
             {visibleDocuments.map((document) => {
               const state = document.deletedAt ? 'deleted' : isDocumentExpired(document.expiresAt) ? 'expired' : document.reviewStatus || document.status;
@@ -228,7 +284,13 @@ export function DocumentsAdminScreen() {
             pageSize={PAGE_SIZE}
             totalItems={filtered.length}
           />
-        </> : <EmptyState icon="file-document-outline" title="Sin documentos" description="No hay documentos para los filtros seleccionados." />}
+        </> : <EmptyState
+          icon="file-document-outline"
+          title={resource.status === 'empty' && !search && !filter ? 'Aún no hay documentos' : 'Sin resultados'}
+          description={resource.status === 'empty' && !search && !filter
+            ? 'Los documentos de conductores y unidades aparecerán aquí cuando se registren.'
+            : 'No hay documentos para los filtros seleccionados.'}
+        />}
       </PortalSectionCard>
 
       <ConfirmModal

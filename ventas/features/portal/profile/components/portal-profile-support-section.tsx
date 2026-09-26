@@ -5,11 +5,13 @@ import { PortalSectionCard } from '../../cards';
 import { styles } from '../profile.styles';
 
 type PortalProfileSupportSectionProps = {
+  supportEmail?: string | null;
   onOpenCommercialSupport: () => void;
   onOpenOperationalSupport: () => void;
 };
 
 export function PortalProfileSupportSection({
+  supportEmail,
   onOpenCommercialSupport,
   onOpenOperationalSupport,
 }: PortalProfileSupportSectionProps) {
@@ -23,7 +25,11 @@ export function PortalProfileSupportSection({
           <MaterialCommunityIcons name="email-outline" size={22} color={palette.info} />
           <View style={styles.supportCopy}>
             <Text style={[styles.sessionTitle, { color: palette.text }]}>Soporte comercial</Text>
-            <Text style={[styles.sessionMeta, { color: palette.muted }]}>Pagos, facturación, contrato y activación. Envía un correo a soporte@manecomb.com</Text>
+            <Text style={[styles.sessionMeta, { color: palette.muted }]}>
+              {supportEmail
+                ? `Pagos, facturación, contrato y activación. Envía un correo a ${supportEmail}`
+                : 'Pagos, facturación, contrato y activación. El canal de soporte no está configurado en este momento.'}
+            </Text>
           </View>
         </Pressable>
         <Pressable

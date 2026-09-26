@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { Pressable, Text, View } from 'react-native';
+import { Linking, Pressable, Text, View } from 'react-native';
 import { palette } from '@/constants/theme';
 import { StatusBadge } from '@/src/components/ui/status-badge';
 import type { Incident } from '@/src/types/app';
@@ -7,7 +7,7 @@ import { formatDate } from '@/src/utils/format';
 import { PortalSectionCard } from '../../cards';
 import { PortalButton } from '../../components/portal-button';
 import { styles } from '../incidents.styles';
-import { getSeverityMeta, getStatusMeta } from '../incidents.utils';
+import { formatIncidentType, getSeverityMeta, getStatusMeta } from '../incidents.utils';
 
 type PortalIncidentDetailsProps = {
   canManage: boolean;
@@ -43,16 +43,16 @@ export function PortalIncidentDetails({
         </View>
         <View style={styles.detailField}>
           <Text style={styles.detailLabel}>Tipo</Text>
-          <Text style={[styles.detailValue, { color: palette.text }]}>{incident.type}</Text>
+          <Text style={[styles.detailValue, { color: palette.text }]}>{formatIncidentType(incident.type)}</Text>
         </View>
         <View style={styles.detailField}>
           <Text style={styles.detailLabel}>Reportado por</Text>
-          <Text style={[styles.detailValue, { color: palette.text }]}>{incident.reporter?.name || incident.reporterId}</Text>
+          <Text style={[styles.detailValue, { color: palette.text }]}>{incident.reporter?.name || 'Conductor no disponible'}</Text>
         </View>
         {incident.vehicleId ? (
           <View style={styles.detailField}>
             <Text style={styles.detailLabel}>Unidad</Text>
-            <Text style={[styles.detailValue, { color: palette.text }]}>{incident.vehicle?.code || incident.vehicleId}</Text>
+            <Text style={[styles.detailValue, { color: palette.text }]}>{incident.vehicle?.code || 'Unidad no disponible'}</Text>
           </View>
         ) : null}
         {incident.location ? (
@@ -68,7 +68,12 @@ export function PortalIncidentDetails({
       {incident.media?.length ? (
         <View style={styles.mediaRow}>
           {incident.media.map((url, idx) => (
-            <Pressable key={idx} accessibilityRole="button" style={[styles.mediaThumb, { backgroundColor: palette.surfaceAlt }]}>
+            <Pressable
+              key={`${url}:${idx}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Abrir evidencia ${idx + 1} de ${incident.media.length}`}
+              onPress={() => void Linking.openURL(url)}
+              style={[styles.mediaThumb, { backgroundColor: palette.surfaceAlt }]}>
               <MaterialCommunityIcons name="image" size={20} color={palette.muted} />
             </Pressable>
           ))}

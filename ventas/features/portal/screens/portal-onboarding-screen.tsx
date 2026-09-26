@@ -176,7 +176,7 @@ export function PortalOnboardingScreen() {
 
     try {
       const shareResult = await Share.share({
-        message: `Soy conductor ManeComb. Usa esta clave para activar tu cuenta: ${activationKey.key}`,
+        message: `Te compartimos una clave de activación de ManeComb para registrar tu cuenta de conductor: ${activationKey.key}`,
       });
       if (shareResult.action === Share.dismissedAction) {
         setFeedback('Compartir cancelado. La key sigue disponible y no se marcó como compartida.');
@@ -238,7 +238,7 @@ export function PortalOnboardingScreen() {
           <KeyActionButton
             icon="share-variant-outline"
             label="Compartir"
-            accessibilityLabel={`Compartir key ${generatedButNotSharedKey.key}`}
+            accessibilityLabel="Compartir clave de activación"
             onPress={() => void handleShareKey(generatedButNotSharedKey)}
             tone="info"
           />
@@ -259,7 +259,7 @@ export function PortalOnboardingScreen() {
       <PortalSectionCard
         compact
         title="Progreso"
-        subtitle={`${completedSteps}/${steps.length || 9} pasos completados`}
+        subtitle={steps.length ? `${completedSteps}/${steps.length} pasos completados` : 'Sincronizando pasos de activación'}
         right={<StatusBadge label={`${progress}%`} tone={progress === 100 ? 'positive' : 'warning'} />}>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progress}%` }]} />

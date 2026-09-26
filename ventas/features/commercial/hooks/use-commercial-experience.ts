@@ -84,6 +84,7 @@ export function useCommercialExperience() {
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const actionInFlight = useRef(false);
+  const planSelectionGeneration = useRef(0);
 
   const refresh = useCallback(async () => {
     await synchronize();
@@ -95,9 +96,12 @@ export function useCommercialExperience() {
   }, [refresh]);
 
   const selectPlan = useCallback(async (planId: string) => {
+    const generation = ++planSelectionGeneration.current;
     setSelectedPlanId(planId);
     setActionMessage(null);
-    setComparison(await runtime.service.evaluateChange(planId));
+    const nextComparison = await runtime.service.evaluateChange(planId);
+    if (generation !== planSelectionGeneration.current) return;
+    setComparison(nextComparison);
   }, [runtime.service]);
 
   const continuePreview = useCallback(async () => {
@@ -119,6 +123,7 @@ export function useCommercialExperience() {
   }, [changePlan, comparison?.validation.allowed, reload, selectedPlanId]);
 
   const clearSelection = useCallback(() => {
+    planSelectionGeneration.current += 1;
     setSelectedPlanId(null);
     setComparison(null);
     setActionMessage(null);

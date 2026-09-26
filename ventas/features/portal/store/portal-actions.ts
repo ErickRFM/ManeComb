@@ -16,6 +16,8 @@ import {
   getAppInfoRequest,
   getDocumentsRequest,
   getIncidentsRequest,
+  updateDocumentRequest,
+  deleteDocumentRequest,
   getPortalOnboardingRequest,
   getPortalOverviewRequest,
   reviewDocumentRequest,
@@ -23,7 +25,6 @@ import {
   revokeAdminActivationKeyRequest,
   shareAdminActivationKeyRequest,
   deleteAdminActivationKeyRequest,
-  updateAppInfoRequest,
   updateIncidentStatusRequest,
 } from '../api';
 import type {
@@ -201,19 +202,6 @@ export function createPortalActions(
         finishResourceLoad(set, 'appInfo', generation, failure);
       }
     },
-    updateAppInfo: async (payload) => {
-      if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
-      set({ isSubmitting: true, error: null });
-      try {
-        const appInfo = await updateAppInfoRequest(payload);
-        set({ appInfo, isSubmitting: false });
-        return { ok: true };
-      } catch (error) {
-        const message = getMessage(error, 'No fue posible actualizar la app.');
-        set({ error: message, isSubmitting: false });
-        return { ok: false, message };
-      }
-    },
     loadActivationKeys: async () => {
       const effectGeneration = beginGlobalEffect();
       const generation = beginResourceLoad(set, 'activationKeys');
@@ -259,12 +247,12 @@ export function createPortalActions(
         finishResourceLoad(set, 'sessions', generation, failure);
       }
     },
-    loadDocuments: async () => {
+    loadDocuments: async (options) => {
       const effectGeneration = beginGlobalEffect();
       const generation = beginResourceLoad(set, 'documents');
       setLatestGlobalError(set, effectGeneration, null);
       try {
-        const documents = await getDocumentsRequest();
+        const documents = await getDocumentsRequest(Boolean(options?.includeDeleted));
         setLatestResourceData(set, 'documents', generation, { documents });
         finishResourceLoad(set, 'documents', generation, { empty: documents.length === 0 });
       } catch (error) {
@@ -499,6 +487,38 @@ export function createPortalActions(
         return { ok: true };
       } catch (error) {
         const message = getMessage(error, 'No fue posible revisar el documento.');
+        set({ error: message, isSubmitting: false });
+        return { ok: false, message };
+      }
+    },
+    updateDocument: async (documentId, payload) => {
+      if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+      set({ isSubmitting: true, error: null });
+      try {
+        const updated = await updateDocumentRequest(documentId, payload);
+        set((state) => ({
+          documents: state.documents.map((d) => (d.id === documentId ? updated : d)),
+          isSubmitting: false,
+        }));
+        return { ok: true };
+      } catch (error) {
+        const message = getMessage(error, 'No fue posible actualizar el documento.');
+        set({ error: message, isSubmitting: false });
+        return { ok: false, message };
+      }
+    },
+    deleteDocument: async (documentId, reason) => {
+      if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
+      set({ isSubmitting: true, error: null });
+      try {
+        await deleteDocumentRequest(documentId, reason);
+        set((state) => ({
+          documents: state.documents.filter((d) => d.id !== documentId),
+          isSubmitting: false,
+        }));
+        return { ok: true };
+      } catch (error) {
+        const message = getMessage(error, 'No fue posible eliminar el documento.');
         set({ error: message, isSubmitting: false });
         return { ok: false, message };
       }

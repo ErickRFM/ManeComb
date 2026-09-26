@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { router } from '@/src/navigation/router';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
@@ -35,6 +35,7 @@ import { RoutePreviewPanel } from '../routes/components/route-preview-panel';
 import { RouteEditorToolbar } from '../routes/components/route-editor-toolbar';
 import { RouteEditorDetails } from '../routes/components/route-editor-details';
 import { RouteAssignedPanel } from '../routes/components/route-assigned-panel';
+import { hasPortalPermission } from '../utils/access';
 
 const RouteMap = lazy(() => import('../components/operations-map').then((m) => ({ default: m.OperationsMap })));
 
@@ -52,6 +53,8 @@ function formatCandidateEvidence(candidate: LearnedRouteCandidate) {
 }
 
 export function PortalRoutesScreen() {
+  const params = useLocalSearchParams<{ vehicleId?: string | string[] }>();
+  const requestedVehicleId = Array.isArray(params.vehicleId) ? params.vehicleId[0] : params.vehicleId;
   const {
     assignRoute,
     clearRouteAssignment,
@@ -71,7 +74,7 @@ export function PortalRoutesScreen() {
       vehicles: state.vehicles,
     }))
   );
-  const canManageRoutes = Boolean(user && ['owner', 'admin'].includes(user.role));
+  const canManageRoutes = hasPortalPermission(user, 'routes');
   const sortedVehicles = useMemo(
     () => [...vehicles].sort((left, right) => String(left.code || '').localeCompare(String(right.code || ''))),
     [vehicles]
@@ -362,10 +365,17 @@ export function PortalRoutesScreen() {
   };
 
   useEffect(() => {
+    const requestedVehicle = requestedVehicleId
+      ? routeVehicles.find((vehicle) => vehicle.id === requestedVehicleId)
+      : null;
+    if (requestedVehicle && editor.vehicleId !== requestedVehicle.id) {
+      setEditor((current) => ({ ...current, vehicleId: requestedVehicle.id }));
+      return;
+    }
     if (!editor.vehicleId && routeVehicles[0]?.id) {
       setEditor((current) => ({ ...current, vehicleId: routeVehicles[0].id }));
     }
-  }, [editor.vehicleId, routeVehicles]);
+  }, [editor.vehicleId, requestedVehicleId, routeVehicles]);
 
   const setField = <T extends keyof RouteEditor>(field: T, value: RouteEditor[T]) => {
     setEditor((current) => ({ ...current, [field]: value }));
@@ -388,12 +398,17 @@ export function PortalRoutesScreen() {
   const duplicateRoute = async (source: Vehicle) => {
     if (!source.assignedRoute || !editor.vehicleId) return;
     const route = source.assignedRoute;
+    if (!route.origin || !route.destination) {
+      setMessage('La ruta seleccionada no tiene coordenadas válidas y no puede duplicarse.');
+      setDuplicateSourceId(null);
+      return;
+    }
     const result = await assignRoute({
       vehicleId: editor.vehicleId,
       originLabel: route.originLabel || '',
       destinationLabel: route.destinationLabel || '',
-      origin: route.origin || { latitude: 0, longitude: 0 },
-      destination: route.destination || { latitude: 0, longitude: 0 },
+      origin: route.origin,
+      destination: route.destination,
     });
     setMessage(result.ok ? 'Ruta duplicada en la unidad seleccionada.' : result.message || 'No fue posible duplicar la ruta.');
     setDuplicateSourceId(null);

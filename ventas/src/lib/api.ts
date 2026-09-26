@@ -1,12 +1,12 @@
 import axios, { AxiosHeaders, isAxiosError, type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type {
   CheckpointVisit,
+  CommercialPublicProfile,
   DocumentItem,
   Incident,
   PaginatedResult,
   PortalActivationKeysResponse,
   PortalAppInfo,
-  PortalAppVersion,
   PortalInvoice,
   PortalOnboarding,
   PortalOverview,
@@ -302,6 +302,10 @@ export async function getCommercialPlansRequest() {
     throw new Error('El backend devolvio un catalogo de planes invalido.');
   }
   return plans;
+}
+
+export async function getCommercialProfileRequest() {
+  return await unwrapData<CommercialPublicProfile>(apiClient.get('/commercial/profile'));
 }
 
 export async function getRuntimeHealthRequest() {
@@ -608,17 +612,3 @@ export async function updateIncidentStatusRequest(incidentId: string, status: 'o
   );
 }
 
-export async function updateAppInfoRequest(payload: Partial<PortalAppInfo> & { versionHistory?: PortalAppVersion[] }) {
-  return await unwrapData<PortalAppInfo>(apiClient.patch('/app/info', payload));
-}
-
-export type DeviceVersionStats = {
-  total: number;
-  versions: Record<string, number>;
-  mostUsedVersion: string | null;
-  lastPublication: string | null;
-};
-
-export async function getDeviceVersionStatsRequest() {
-  return await unwrapData<DeviceVersionStats>(apiClient.get('/app/device-stats'));
-}

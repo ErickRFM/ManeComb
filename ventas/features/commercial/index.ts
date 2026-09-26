@@ -4,3 +4,5 @@ export { useCheckoutExperience, usePublicCommercialFlow } from './hooks/use-chec
 export { resolveInvoiceDownloadUrl } from './services/billing-download';
 export { validateTestCard } from './services/checkout-validation';
 export * from './types';
+
+export * from './hooks/use-commercial-profile';

@@ -4,7 +4,6 @@ import type {
   PortalActivationKey,
   PortalActivationKeysSummary,
   PortalAppInfo,
-  PortalAppVersion,
   PortalInvoice,
   PortalOnboarding,
   PortalOverview,
@@ -49,11 +48,10 @@ export type PortalStore = {
   resources: Record<PortalResourceDomain, ResourceState>;
   loadOverview: () => Promise<void>;
   loadAppInfo: () => Promise<void>;
-  updateAppInfo: (payload: Partial<PortalAppInfo> & { versionHistory?: PortalAppVersion[] }) => Promise<PortalActionResult>;
   loadActivationKeys: () => Promise<void>;
   loadBilling: () => Promise<void>;
   loadSessions: () => Promise<void>;
-  loadDocuments: () => Promise<void>;
+  loadDocuments: (options?: { includeDeleted?: boolean }) => Promise<void>;
   loadIncidents: () => Promise<void>;
   loadAll: (options?: PortalLoadOptions) => Promise<void>;
   generateActivationKey: () => Promise<PortalActionResult>;
@@ -63,6 +61,8 @@ export type PortalStore = {
   changePlan: (planId: string, selectedAddOns?: string[]) => Promise<PortalActionResult>;
   cancelPlan: (reason?: string) => Promise<PortalActionResult>;
   reviewDocument: (documentId: string, payload: { reviewStatus: string; reviewNotes?: string }) => Promise<PortalActionResult>;
+  updateDocument: (documentId: string, payload: { name: string; expiresAt: string }) => Promise<PortalActionResult>;
+  deleteDocument: (documentId: string, reason: string) => Promise<PortalActionResult>;
   updateIncidentStatus: (incidentId: string, status: 'open' | 'in_progress' | 'resolved') => Promise<PortalActionResult>;
   revokeSession: (sessionId: string) => Promise<PortalActionResult>;
   applyRealtimeEvent: (eventName: string, payload?: unknown) => void;

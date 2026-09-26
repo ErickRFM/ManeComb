@@ -8,7 +8,7 @@ import type { PortalInvoice } from '@/src/types/app';
 import { formatPortalStatus } from './format-portal-status';
 import { getStatusTone } from './get-portal-status-tone';
 
-export function InvoiceList({ invoices, onDownload }: { invoices: PortalInvoice[]; onDownload?: (invoice: PortalInvoice) => void }) {
+export function InvoiceList({ invoices, onDownload, downloadingInvoiceId }: { invoices: PortalInvoice[]; onDownload?: (invoice: PortalInvoice) => void; downloadingInvoiceId?: string | null }) {
   const theme = { colors: portalPalette };
 
   return (
@@ -29,7 +29,9 @@ export function InvoiceList({ invoices, onDownload }: { invoices: PortalInvoice[
             <StatusBadge label={formatPortalStatus(invoice.status)} tone={getStatusTone(invoice.status)} />
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`Descargar factura ${invoice.referenceCode || ''}`.trim()}
+              accessibilityLabel={downloadingInvoiceId === invoice.id ? 'Descargando factura' : `Descargar factura ${invoice.referenceCode || ''}`.trim()}
+              accessibilityState={{ disabled: downloadingInvoiceId === invoice.id, busy: downloadingInvoiceId === invoice.id }}
+              disabled={downloadingInvoiceId === invoice.id}
               onPress={() => onDownload?.(invoice)}
               style={({ hovered, pressed }: any) => [
                 styles.smallButton,
@@ -38,7 +40,7 @@ export function InvoiceList({ invoices, onDownload }: { invoices: PortalInvoice[
                 hovered ? { backgroundColor: portalPalette.accentSoft } : undefined,
                 pressed ? { opacity: 0.7, transform: [{ scale: 0.92 }] } : undefined,
               ]}>
-              <MaterialCommunityIcons name="download-outline" size={18} color={theme.colors.text} />
+              <MaterialCommunityIcons name={downloadingInvoiceId === invoice.id ? 'loading' : 'download-outline'} size={18} color={theme.colors.text} />
             </Pressable>
           </View>
         </View>

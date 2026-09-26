@@ -4,8 +4,9 @@ import { StatusBar } from '@/src/native/status-bar';
 import { router } from '@/src/navigation/router';
 import { BrandLogo } from '@/src/components/brand-logo';
 import { Typography } from '@/constants/theme';
+import { useCommercialProfile } from '@/features/commercial';
 
-const SUPPORT_EMAIL = 'ventas@manecomb.com';
+const SUPPORT_EMAIL_TOKEN = '{{SUPPORT_EMAIL}}';
 const LAST_UPDATED = '15 de agosto de 2026';
 
 type LegalKind = 'terms' | 'privacy';
@@ -69,7 +70,7 @@ const TERMS: LegalSection[] = [
     title: '8. Disponibilidad, soporte y cambios',
     paragraphs: [
       'El servicio puede requerir mantenimiento, actualizaciones o cambios de configuración. Cuando una función dependa de un proveedor externo, su disponibilidad también puede verse afectada por ese proveedor. ManeComb procura mostrar estados de error y recuperación sin presentar datos simulados como si fueran información productiva.',
-      `Para soporte comercial o dudas sobre estas condiciones puedes escribir a ${SUPPORT_EMAIL}. Las modificaciones relevantes a estas condiciones se publicarán en esta misma sección con una nueva fecha de actualización.`
+      `Para soporte comercial o dudas sobre estas condiciones puedes escribir a ${SUPPORT_EMAIL_TOKEN}. Las modificaciones relevantes a estas condiciones se publicarán en esta misma sección con una nueva fecha de actualización.`
     ]
   }
 ];
@@ -78,7 +79,7 @@ const PRIVACY: LegalSection[] = [
   {
     title: '1. Responsable y contacto',
     paragraphs: [
-      `ManeComb es responsable del tratamiento realizado directamente por la plataforma respecto de cuentas comerciales y del servicio. Para solicitudes relacionadas con privacidad puedes utilizar ${SUPPORT_EMAIL}. Los datos fiscales y domicilio legal del responsable aplicable a una contratación se incorporan en la documentación contractual y fiscal de la cuenta.`,
+      `ManeComb es responsable del tratamiento realizado directamente por la plataforma respecto de cuentas comerciales y del servicio. Para solicitudes relacionadas con privacidad puedes utilizar ${SUPPORT_EMAIL_TOKEN}. Los datos fiscales y domicilio legal del responsable aplicable a una contratación se incorporan en la documentación contractual y fiscal de la cuenta.`,
       'Cuando una empresa usuaria incorpora datos de sus propios conductores, supervisores o personal para gestionar su operación, esa empresa también puede tener responsabilidades propias sobre la información que decide registrar y utilizar.'
     ]
   },
@@ -120,7 +121,7 @@ const PRIVACY: LegalSection[] = [
   {
     title: '7. Derechos y solicitudes',
     paragraphs: [
-      `Puedes solicitar información sobre tus datos y, cuando corresponda, acceso, rectificación, cancelación u oposición mediante ${SUPPORT_EMAIL}. La solicitud debe permitir identificar la cuenta y el dato relacionado sin enviar contraseñas, códigos de autenticación ni datos completos de tarjetas.`,
+      `Puedes solicitar información sobre tus datos y, cuando corresponda, acceso, rectificación, cancelación u oposición mediante ${SUPPORT_EMAIL_TOKEN}. La solicitud debe permitir identificar la cuenta y el dato relacionado sin enviar contraseñas, códigos de autenticación ni datos completos de tarjetas.`,
       'Algunas solicitudes pueden requerir conservar información limitada cuando exista una obligación contractual, fiscal, de seguridad o de integridad histórica que impida su eliminación inmediata.'
     ]
   },
@@ -133,6 +134,8 @@ const PRIVACY: LegalSection[] = [
 ];
 
 export function LegalScreen({ kind }: { kind: LegalKind }) {
+  const { profile } = useCommercialProfile();
+  const supportContact = profile?.supportEmail || 'el canal de soporte publicado por ManeComb';
   const isPrivacy = kind === 'privacy';
   const sections = isPrivacy ? PRIVACY : TERMS;
   const title = isPrivacy ? 'Aviso de privacidad' : 'Términos de servicio';
@@ -172,7 +175,7 @@ export function LegalScreen({ kind }: { kind: LegalKind }) {
             <View key={section.title} style={styles.section}>
               <Text style={styles.sectionTitle}>{section.title}</Text>
               {section.paragraphs.map((paragraph) => (
-                <Text key={paragraph} style={styles.paragraph}>{paragraph}</Text>
+                <Text key={paragraph} style={styles.paragraph}>{paragraph.replaceAll(SUPPORT_EMAIL_TOKEN, supportContact)}</Text>
               ))}
             </View>
           ))}
@@ -180,8 +183,8 @@ export function LegalScreen({ kind }: { kind: LegalKind }) {
 
         <View style={styles.footerCard}>
           <Text style={styles.footerTitle}>Contacto</Text>
-          <Text selectable style={styles.footerText}>{SUPPORT_EMAIL}</Text>
-          <Text style={styles.footerText}>ManeComb · México</Text>
+          <Text selectable style={styles.footerText}>{profile?.supportEmail || 'Contacto disponible desde ManeComb'}</Text>
+          <Text style={styles.footerText}>{profile?.legalName || 'ManeComb'}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

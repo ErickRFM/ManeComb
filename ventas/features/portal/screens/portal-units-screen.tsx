@@ -68,7 +68,8 @@ export function PortalUnitsScreen() {
       .sort((left, right) => String(left.code || '').localeCompare(String(right.code || '')));
   }, [search, showRetired, statusFilter, vehicles]);
   const unitSummary = useMemo(() => ({
-    total: vehicles.length,
+    records: vehicles.length,
+    active: vehicles.filter((item) => !item.retiredAt).length,
     available: vehicles.filter((item) => !item.retiredAt && !item.driverId && item.status === 'available').length,
     assigned: vehicles.filter((item) => !item.retiredAt && Boolean(item.driverId)).length,
     maintenance: vehicles.filter((item) => !item.retiredAt && item.status === 'maintenance').length,
@@ -212,10 +213,13 @@ export function PortalUnitsScreen() {
         <PortalUnitsContinuityBanner onAssignRoute={() => router.push('/portal/rutas' as never)} />
       ) : null}
 
-      <PortalSectionCard compact title="Resumen de flota" subtitle="Estado administrativo y operativo de las unidades.">
+      <PortalSectionCard
+        compact
+        title="Resumen de flota"
+        subtitle={`${unitSummary.records} registro${unitSummary.records === 1 ? '' : 's'} totales · estado de la flota activa y archivada.`}>
         <View style={styles.summaryGrid}>
           {[
-            ['Total', unitSummary.total],
+            ['Activas', unitSummary.active],
             ['Disponibles', unitSummary.available],
             ['Asignadas', unitSummary.assigned],
             ['Mantenimiento', unitSummary.maintenance],

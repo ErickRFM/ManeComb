@@ -18,9 +18,11 @@ import type { ProfileForm } from '../profile/profile.types';
 import { getProfileSection } from '../profile/profile.utils';
 import { usePortalStore } from '../store/use-portal-store';
 import { hasPortalPermission } from '../utils/access';
+import { useCommercialProfile } from '@/features/commercial';
 
 export function PortalProfileScreen() {
   const params = useLocalSearchParams<{ section?: string | string[] }>();
+  const { profile: commercialProfile } = useCommercialProfile();
   const requestedSection = getProfileSection(params.section);
   const { isSubmitting: isProfileSubmitting, updateProfile, user } = useAppStore(
     useShallow((state) => ({
@@ -150,7 +152,7 @@ export function PortalProfileScreen() {
       const response = await apiClient.delete<{ ok: boolean; message?: string }>('/users/me/sessions/others');
       setSessionMessage(response.data.message || 'Las demás sesiones fueron cerradas.');
       setRevokeAllOpen(false);
-      await loadAll();
+      await loadAll({ force: true });
     } catch (error) {
       setSessionMessage(
         isAxiosError(error)
@@ -243,7 +245,12 @@ export function PortalProfileScreen() {
 
       {activeSection === 'soporte' ? (
         <PortalProfileSupportSection
-          onOpenCommercialSupport={() => void Linking.openURL('mailto:soporte@manecomb.com')}
+          supportEmail={commercialProfile?.supportEmail}
+          onOpenCommercialSupport={() => {
+            if (commercialProfile?.supportEmail) {
+              void Linking.openURL(`mailto:${commercialProfile.supportEmail}`);
+            }
+          }}
           onOpenOperationalSupport={() => router.push('/portal' as never)}
         />
       ) : null}

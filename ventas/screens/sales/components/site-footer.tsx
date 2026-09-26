@@ -2,7 +2,8 @@ import { Pressable, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { router } from '@/src/navigation/router';
 import { BrandLogo } from '@/src/components/brand-logo';
-import { SUPPORT_EMAIL, SUPPORT_PHONE, neonPalette } from '../constants';
+import { neonPalette } from '../constants';
+import { useCommercialProfile } from '@/features/commercial';
 import { styles } from '../styles';
 import { openExternalUrl } from '../utils';
 import type { IconName } from '../types';
@@ -31,7 +32,21 @@ function ContactRow({ icon, onPress, text }: { icon: IconName; onPress?: () => v
   );
 }
 
+function formatSupportPhone(value: string | null | undefined) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('52')) {
+    return `+${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`;
+  }
+  return raw;
+}
+
 export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => void }) {
+  const { profile } = useCommercialProfile();
+  const supportEmail = profile?.supportEmail || '';
+  const supportPhone = profile?.supportPhone || '';
+
   const handleFooterLink = (label: string) => {
     if (label === 'Planes') {
       onNavigate('planes');
@@ -50,7 +65,7 @@ export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => voi
       return;
     }
     if (label === 'Contacto' || label === 'Soporte comercial') {
-      openExternalUrl(`mailto:${SUPPORT_EMAIL}?subject=Soporte%20ManeComb`);
+      if (supportEmail) openExternalUrl(`mailto:${supportEmail}?subject=Soporte%20ManeComb`);
       return;
     }
     if (label === 'Privacidad') {
@@ -91,9 +106,13 @@ export function SiteFooter({ onNavigate }: { onNavigate: (target: string) => voi
 
         <View style={styles.contactCard}>
           <Text style={styles.contactTitle}>¿Hablamos?</Text>
-          <ContactRow icon="email-outline" text={SUPPORT_EMAIL} onPress={() => openExternalUrl(`mailto:${SUPPORT_EMAIL}`)} />
-          <ContactRow icon="phone-outline" text="(81) 8123 45678" onPress={() => openExternalUrl(`tel:${SUPPORT_PHONE}`)} />
-          <ContactRow icon="map-marker-outline" text="Monterrey, NL, México" />
+          {supportEmail ? (
+            <ContactRow icon="email-outline" text={supportEmail} onPress={() => openExternalUrl(`mailto:${supportEmail}`)} />
+          ) : null}
+          {supportPhone ? (
+            <ContactRow icon="phone-outline" text={formatSupportPhone(supportPhone)} onPress={() => openExternalUrl(`tel:${supportPhone}`)} />
+          ) : null}
+          <ContactRow icon="office-building-outline" text={profile?.legalName || 'ManeComb'} />
         </View>
       </View>
 

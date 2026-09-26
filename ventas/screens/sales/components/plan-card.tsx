@@ -131,78 +131,59 @@ export function PlanCard({
   }, [entered, entrySettled, reducedMotion, revealDelay]);
 
   return (
-    <Pressable
+    <View
       ref={cardRef as never}
-      accessibilityRole="button"
-      accessibilityLabel={`Ver plan ${plan.name}`}
-      onPress={onPress}
-      style={(state) => {
-        const pressed = state.pressed;
-        const hovered = Platform.OS === 'web' && Boolean((state as any).hovered);
-        const hoverLift = compactCard ? -4 : -5;
-        const selectedLift = compactCard ? -3 : -4;
-        const hoverScale = compactCard ? 1.01 : 1.014;
-        const restingTranslateY = active ? selectedLift : hovered ? hoverLift : 0;
-        const restingScale = hovered ? hoverScale : 1;
-
-        return [
-          styles.planCard,
-          {
-            // El listado de beneficios no puede colapsar por debajo de su contenido. La altura
-            // mínima contempla también la segunda acción del plan demo para que ningún CTA se
-            // monte sobre los textos al cambiar viewport, zoom o métrica tipográfica.
-            alignSelf: 'stretch',
-            flexShrink: 0,
-            gap: compactCard ? 12 : 15,
-            marginHorizontal: cardOuterInset,
-            maxWidth: renderedCardWidth,
-            minHeight: cardMinHeight,
-            opacity: motionReady ? 1 : 0,
-            padding: compactCard ? 18 : 20,
-            width: renderedCardWidth,
-            borderColor: active ? visual.edge : hovered ? `${visual.secondary}E6` : `${visual.edge}44`,
-            ...(Platform.OS === 'web'
-              ? null
-              : {
-                  shadowColor: cardEdge,
-                  shadowOpacity: active ? 0.4 : hovered ? 0.3 : 0.15,
-                }),
-            transform: [
-              { translateY: motionReady ? restingTranslateY : 28 },
-              { scale: motionReady ? restingScale : 0.985 },
-            ],
-            ...(Platform.OS === 'web'
-              ? ({
-                  backgroundImage: active
-                    ? 'linear-gradient(145deg, rgba(11, 18, 36, 0.99) 0%, rgba(19, 27, 51, 0.96) 58%, rgba(11, 18, 36, 0.99) 100%)'
-                    : hovered
-                      ? 'linear-gradient(145deg, rgba(13, 22, 43, 0.98) 0%, rgba(20, 31, 57, 0.94) 100%)'
-                      : 'linear-gradient(145deg, rgba(10, 17, 34, 0.94) 0%, rgba(15, 24, 46, 0.9) 100%)',
-                  boxShadow:
-                    active || hovered
-                      ? `0 0 0 1px ${visual.edge}A8, 0 0 18px ${visual.edge}3D, 0 16px 30px rgba(0, 0, 0, 0.34)`
-                      : `0 0 0 1px ${visual.edge}22, 0 12px 26px rgba(0, 0, 0, 0.24)`,
-                  filter: motionReady ? 'blur(0px)' : 'blur(3px)',
-                  transitionDelay: reducedMotion || entrySettled ? '0ms' : `${revealDelay}ms`,
-                  transitionDuration: reducedMotion
-                    ? '0ms'
-                    : entrySettled
-                      ? compactCard
-                        ? '240ms'
-                        : '270ms'
-                      : `${PLAN_REVEAL_DURATION_MS}ms`,
-                  transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
-                  transitionProperty: 'transform, box-shadow, border-color, background-image, opacity, filter',
-                  backdropFilter: 'blur(18px)',
-                  cursor: 'pointer',
-                  willChange: entrySettled ? 'transform, box-shadow' : 'transform, opacity, filter',
-                } as any)
-              : null),
-          },
-          pressed ? styles.buttonPressed : undefined,
-        ];
-      }}>
-      <View style={styles.planTop}>
+      style={[
+        styles.planCard,
+        {
+          alignSelf: 'stretch',
+          flexShrink: 0,
+          gap: compactCard ? 12 : 15,
+          marginHorizontal: cardOuterInset,
+          maxWidth: renderedCardWidth,
+          minHeight: cardMinHeight,
+          opacity: motionReady ? 1 : 0,
+          padding: compactCard ? 18 : 20,
+          width: renderedCardWidth,
+          borderColor: active ? visual.edge : `${visual.edge}44`,
+          ...(Platform.OS === 'web'
+            ? ({
+                backgroundImage: active
+                  ? 'linear-gradient(145deg, rgba(11, 18, 36, 0.99) 0%, rgba(19, 27, 51, 0.96) 58%, rgba(11, 18, 36, 0.99) 100%)'
+                  : 'linear-gradient(145deg, rgba(10, 17, 34, 0.94) 0%, rgba(15, 24, 46, 0.9) 100%)',
+                boxShadow: active
+                  ? `0 0 0 1px ${visual.edge}A8, 0 0 18px ${visual.edge}3D, 0 16px 30px rgba(0, 0, 0, 0.34)`
+                  : `0 0 0 1px ${visual.edge}22, 0 12px 26px rgba(0, 0, 0, 0.24)`,
+                filter: motionReady ? 'blur(0px)' : 'blur(3px)',
+                transitionDelay: reducedMotion || entrySettled ? '0ms' : `${revealDelay}ms`,
+                transitionDuration: reducedMotion
+                  ? '0ms'
+                  : entrySettled
+                    ? compactCard
+                      ? '240ms'
+                      : '270ms'
+                    : `${PLAN_REVEAL_DURATION_MS}ms`,
+                transitionTimingFunction: 'cubic-bezier(0.16, 1, 0.3, 1)',
+                transitionProperty: 'transform, box-shadow, border-color, background-image, opacity, filter',
+                backdropFilter: 'blur(18px)',
+                willChange: entrySettled ? 'transform, box-shadow' : 'transform, opacity, filter',
+              } as any)
+            : {
+                shadowColor: cardEdge,
+                shadowOpacity: active ? 0.4 : 0.15,
+              }),
+          transform: [
+            { translateY: motionReady ? (active ? (compactCard ? -3 : -4) : 0) : 28 },
+            { scale: motionReady ? 1 : 0.985 },
+          ],
+        },
+      ]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Seleccionar plan ${plan.name}`}
+        accessibilityState={{ selected: active }}
+        onPress={onPress}
+        style={({ pressed }) => [styles.planTop, pressed ? styles.buttonPressed : undefined]}>
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
             <Text
@@ -235,7 +216,7 @@ export function PlanCard({
           ]}>
           <MaterialCommunityIcons name="bus-electric" size={compactCard ? 21 : 24} color={cardEdge} />
         </View>
-      </View>
+      </Pressable>
       <Text
         style={[
           styles.planSubtitle,
@@ -341,6 +322,6 @@ export function PlanCard({
           </Pressable>
         ) : null}
       </View>
-    </Pressable>
+    </View>
   );
 }

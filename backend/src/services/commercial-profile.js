@@ -30,7 +30,7 @@ function getCommercialProfile() {
   return {
     brandName: COMMERCIAL_BRAND_NAME || "ManeComb",
     legalName: COMMERCIAL_LEGAL_NAME || COMMERCIAL_BRAND_NAME || "ManeComb",
-    supportEmail: COMMERCIAL_SUPPORT_EMAIL || null,
+    supportEmail: COMMERCIAL_SUPPORT_EMAIL || "ventas@manecomb.com",
     supportPhone: normalizePhone(COMMERCIAL_SUPPORT_PHONE) || null,
     bankTransferEnabled: isManualTransferConfigured(),
     bankName: BANK_TRANSFER_BANK_NAME || null

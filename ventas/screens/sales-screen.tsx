@@ -272,7 +272,7 @@ export function SalesScreen() {
 
       <SiteHeader
         compact={headerCompact}
-        showSecondaryAction={width >= 430}
+        showSecondaryAction
         stacked={isPhone || isTablet}
         loginLabel={loginLabel}
         onBuy={() => scrollToSection('planes')}
@@ -308,7 +308,7 @@ export function SalesScreen() {
                 styles.heroSection,
                 heroSideBySide ? styles.heroDesktop : undefined,
                 isPhone ? styles.heroPhone : undefined,
-                isPhone ? { minHeight: 680 } : undefined,
+                isPhone ? { minHeight: 610 } : undefined,
                 isTablet && !heroSideBySide ? styles.heroTablet : undefined,
                 Platform.OS === 'web'
                   ? ({
@@ -409,6 +409,31 @@ export function SalesScreen() {
                     </View>
                   ) : null}
                 </View>
+
+                {plans.length ? (
+                  <View style={styles.planCapacityNav} accessibilityRole="radiogroup">
+                    {plans.map((plan, index) => (
+                      <Pressable
+                        key={`capacity:${plan.id}`}
+                        accessibilityRole="radio"
+                        accessibilityLabel={`Plan para ${plan.units} unidades`}
+                        accessibilityState={{ checked: activePlanIndex === index }}
+                        onPress={() => jumpToPlan(index)}
+                        style={[
+                          styles.planCapacityPill,
+                          activePlanIndex === index ? styles.planCapacityPillActive : undefined,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.planCapacityPillText,
+                            activePlanIndex === index ? styles.planCapacityPillTextActive : undefined,
+                          ]}>
+                          {plan.units} {plan.units === 1 ? 'unidad' : 'unidades'}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : null}
 
                 {plansLoading ? (
                   <View
