@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "2f9b5aab7df72f065007ab703a99c589ebfdd647",
+    "commit": "e448c910a55a7861e89ca38a96f16a7bf9b9e4a2",
     "capturedAt": "2026-09-25",
-    "phase": "pr-301-tracking-map-authority-review"
+    "phase": "pr-301-tracking-map-final-review"
   },
   "products": [
     {
