@@ -827,10 +827,10 @@ export const OperationsMap = React.memo(function OperationsMap({
   }
 
   return (
-    <View style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 0 }]}>
+    <View nativeID={mapMode === 'operational' ? 'operations-map-canvas' : undefined} style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 0 }]}>
       <View ref={hostRef as never} style={styles.mapCanvas} />
       {mapMode === 'operational' ? (
-        <View style={styles.cameraControls}>
+        <View nativeID="operations-camera-controls" style={styles.cameraControls}>
           <Pressable
             accessibilityLabel="Centrar flota"
             onPress={() => {
