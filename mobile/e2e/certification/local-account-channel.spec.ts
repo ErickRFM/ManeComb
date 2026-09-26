@@ -654,12 +654,13 @@ test.describe('CERT-OPERATIONS-MAP — seguimiento map-first responsive', () => 
         await expect(page.getByRole('button', { name: /GPS perdido.*1/i })).toBeVisible();
         await page.getByRole('button', { name: /GPS perdido.*1/i }).click();
         await expect(page.getByRole('button', { name: 'Filtro GPS perdido, 1 unidades' })).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Ver C-4' })).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Ver C-2' })).toHaveCount(0);
+        const unitSheet = page.locator('#operations-unit-selector');
+        await expect(unitSheet.getByRole('button', { name: 'Ver C-4', exact: true })).toBeVisible();
+        await expect(unitSheet.getByRole('button', { name: 'Ver C-2', exact: true })).toHaveCount(0);
 
         await page.getByRole('button', { name: 'Filtro GPS perdido, 1 unidades' }).click();
         await expect(page.getByRole('button', { name: 'Filtro Todas, 2 unidades' })).toBeVisible();
-        await page.getByRole('button', { name: 'Ver C-4' }).click();
+        await unitSheet.getByRole('button', { name: 'Ver C-4', exact: true }).click();
         await expect(page.getByText(/Chofer C-4 · 0 km\/h/i)).toBeVisible();
         await expect(page.getByText(/Último GPS/i)).toBeVisible();
 
