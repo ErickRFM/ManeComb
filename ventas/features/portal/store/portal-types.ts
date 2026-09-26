@@ -4,7 +4,6 @@ import type {
   PortalActivationKey,
   PortalActivationKeysSummary,
   PortalAppInfo,
-  PortalAppVersion,
   PortalInvoice,
   PortalOnboarding,
   PortalOverview,
@@ -49,7 +48,6 @@ export type PortalStore = {
   resources: Record<PortalResourceDomain, ResourceState>;
   loadOverview: () => Promise<void>;
   loadAppInfo: () => Promise<void>;
-  updateAppInfo: (payload: Partial<PortalAppInfo> & { versionHistory?: PortalAppVersion[] }) => Promise<PortalActionResult>;
   loadActivationKeys: () => Promise<void>;
   loadBilling: () => Promise<void>;
   loadSessions: () => Promise<void>;
