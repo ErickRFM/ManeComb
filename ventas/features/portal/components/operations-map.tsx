@@ -86,11 +86,12 @@ function getDriverName(unit?: OperationalUnitSnapshot) {
 function getMarkerTone(vehicle: Vehicle, unit?: OperationalUnitSnapshot, selectedVehicleId?: string | null): { background: string; border: string } {
   if (vehicle.id === selectedVehicleId) return { background: portalPalette.accent, border: '#fff' };
   if (unit?.route?.isOffRoute) return { background: '#d32f2f', border: '#fff' };
-  // Solo un enlace vivo sostiene el color operativo. `delayed` en adelante se
-  // atenua a gris: la ultima posicion sigue dibujandose, pero no afirma salud.
-  if (unit?.gps.connectionState !== 'live') return { background: '#757575', border: '#fff' };
-  if (vehicle.status === 'maintenance' || vehicle.status === 'offline') return { background: portalPalette.warning, border: '#fff' };
-  return { background: portalPalette.info, border: '#fff' };
+  // Solo un enlace vivo sostiene un color operativo. Desde `delayed` la ultima
+  // posicion permanece visible, pero se presenta neutra para no fingir salud.
+  if (unit?.gps.connectionState !== 'live') return { background: '#64748b', border: '#fff' };
+  if (vehicle.status === 'maintenance' || vehicle.status === 'offline') return { background: '#475569', border: '#fff' };
+  if (unit?.operationalState === 'stopped') return { background: portalPalette.warning, border: '#fff' };
+  return { background: portalPalette.success, border: '#fff' };
 }
 
 /**
@@ -111,6 +112,7 @@ function createMarkerElement({ background, border, label, title, shape }: { back
   element.type = 'button';
   element.className = `operations-map-marker operations-map-marker--${shape}`;
   element.textContent = label;
+  element.setAttribute('aria-label', title || label);
   if (title) element.title = title;
   element.style.alignItems = 'center';
   element.style.background = background;
@@ -153,11 +155,14 @@ function getBoundsPoints({
 }
 
 const FIT_PADDING = {
-  top: AppTheme.spacing.xxl * 2,
-  right: AppTheme.spacing.xxl * 2,
-  bottom: AppTheme.spacing.xxl * 5,
-  left: AppTheme.spacing.xxl * 7,
+  top: 84,
+  right: 64,
+  bottom: 132,
+  left: 64,
 };
+const MIN_OPERATIONAL_AUTO_ZOOM = 8.5;
+const SINGLE_VEHICLE_AUTO_ZOOM = 15;
+const MAX_AUTO_FIT_ZOOM = 15;
 // Por debajo de esto el canvas todavia no tiene layout util: reintentamos en vez de encuadrar.
 const MIN_FIT_VIEWPORT = 48;
 // mapbox-gl 2.15 `_cameraForBounds` calcula scaleX/scaleY como
@@ -201,12 +206,18 @@ const GEO_CITY_ZOOM = 11; // nivel ciudad/region
 
 // Devuelve false cuando el encuadre no se pudo aplicar todavia (canvas sin layout),
 // para que quien llama reintente en lugar de marcar el encuadre como hecho.
-function applyCamera(map: MapboxMap, points: GeoPoint[]): boolean {
+function applyCamera(
+  map: MapboxMap,
+  points: GeoPoint[],
+  policy: { minZoom?: number; singleZoom?: number } = {}
+): boolean {
   const valid = toValidPoints(points);
   if (!valid.length) return true;
 
+  const minZoom = Math.max(0, Number(policy.minZoom) || 0);
+  const singleZoom = Math.min(MAX_AUTO_FIT_ZOOM, Math.max(minZoom, Number(policy.singleZoom) || 14));
   const centerOn = (point: GeoPoint) => {
-    map.easeTo({ center: toLngLat(point), duration: 500, easing: cameraEasing, zoom: 14 });
+    map.easeTo({ center: toLngLat(point), duration: 500, easing: cameraEasing, zoom: singleZoom });
   };
 
   try {
@@ -229,7 +240,21 @@ function applyCamera(map: MapboxMap, points: GeoPoint[]): boolean {
       return true;
     }
 
-    map.fitBounds(bounds, { duration: 550, easing: cameraEasing, padding });
+    const camera = map.cameraForBounds(bounds, { maxZoom: MAX_AUTO_FIT_ZOOM, padding });
+    if (camera?.center && Number.isFinite(camera.zoom)) {
+      // El centro operativo no debe arrancar a escala continental por un outlier
+      // GPS. Se conserva el centro calculado por Mapbox, pero el auto-encuadre se
+      // limita a una escala regional. El usuario siempre puede alejar manualmente.
+      map.easeTo({
+        center: camera.center,
+        duration: 550,
+        easing: cameraEasing,
+        zoom: Math.max(minZoom, Math.min(MAX_AUTO_FIT_ZOOM, camera.zoom)),
+      });
+      return true;
+    }
+
+    map.fitBounds(bounds, { duration: 550, easing: cameraEasing, maxZoom: MAX_AUTO_FIT_ZOOM, padding });
     return true;
   } catch (error) {
     // Blindaje: un fallo de camara degrada a mapa sin encuadre, nunca tumba la pantalla.
@@ -439,8 +464,13 @@ export const OperationsMap = React.memo(function OperationsMap({
     map.on('click', (event) => {
       onClickPointRef.current?.({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
     });
-    map.on('dragstart', () => setCameraMode('user'));
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
+    const markUserCamera = (event: mapboxgl.MapboxEvent<MouseEvent | TouchEvent | WheelEvent | undefined>) => {
+      if (event.originalEvent) setCameraMode('user');
+    };
+    map.on('dragstart', markUserCamera as never);
+    map.on('zoomstart', markUserCamera as never);
+    map.on('rotatestart', markUserCamera as never);
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false, showZoom: true }), 'top-right');
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
     map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-right');
     mapRef.current = map;
@@ -458,6 +488,9 @@ export const OperationsMap = React.memo(function OperationsMap({
       replayMarkerRef.current?.remove();
       map.off('error', handleMapError);
       map.off('webglcontextlost', handleWebGLContextLost);
+      map.off('dragstart', markUserCamera as never);
+      map.off('zoomstart', markUserCamera as never);
+      map.off('rotatestart', markUserCamera as never);
       resizeObserver?.disconnect();
       map.remove();
       mapRef.current = null;
@@ -563,6 +596,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         const element = marker.getElement();
         element.textContent = vehicle.code;
         element.title = `${vehicle.code} · ${getDriverName(unit)}${getMarkerGpsSuffix(unit)}`;
+        element.setAttribute('aria-label', element.title);
         element.style.background = markerTone.background;
         element.style.border = `2px solid ${markerTone.border}`;
         element.classList.toggle('is-active', vehicle.id === selectedVehicleId);
@@ -665,7 +699,10 @@ export const OperationsMap = React.memo(function OperationsMap({
     let timer = 0;
     const attempt = () => {
       if (cancelled || !mapRef.current) return;
-      if (applyCamera(mapRef.current, points)) {
+      const cameraPolicy = mapMode === 'operational'
+        ? { minZoom: MIN_OPERATIONAL_AUTO_ZOOM, singleZoom: SINGLE_VEHICLE_AUTO_ZOOM }
+        : undefined;
+      if (applyCamera(mapRef.current, points, cameraPolicy)) {
         fittedKeyRef.current = fitTriggerKey;
         return;
       }
@@ -680,7 +717,7 @@ export const OperationsMap = React.memo(function OperationsMap({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [autoFit, cameraMode, fitTriggerKey]);
+  }, [autoFit, cameraMode, fitTriggerKey, mapMode]);
 
   useEffect(() => {
     if (cameraMode !== 'follow' || !selectedVehicleId || !mapRef.current) return;
@@ -799,7 +836,15 @@ export const OperationsMap = React.memo(function OperationsMap({
             onPress={() => {
               setCameraMode('center');
               fittedKeyRef.current = '';
-              if (mapRef.current) applyCamera(mapRef.current, boundsPointsRef.current);
+              if (mapRef.current) {
+                applyCamera(
+                  mapRef.current,
+                  boundsPointsRef.current,
+                  mapMode === 'operational'
+                    ? { minZoom: MIN_OPERATIONAL_AUTO_ZOOM, singleZoom: SINGLE_VEHICLE_AUTO_ZOOM }
+                    : undefined
+                );
+              }
             }}
             style={[styles.cameraButton, cameraMode === 'center' ? styles.cameraButtonActive : undefined]}>
             <MaterialCommunityIcons name="crosshairs-gps" size={17} color={portalPalette.text} />
