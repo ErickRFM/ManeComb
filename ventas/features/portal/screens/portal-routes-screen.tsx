@@ -35,6 +35,7 @@ import { RoutePreviewPanel } from '../routes/components/route-preview-panel';
 import { RouteEditorToolbar } from '../routes/components/route-editor-toolbar';
 import { RouteEditorDetails } from '../routes/components/route-editor-details';
 import { RouteAssignedPanel } from '../routes/components/route-assigned-panel';
+import { hasPortalPermission } from '../utils/access';
 
 const RouteMap = lazy(() => import('../components/operations-map').then((m) => ({ default: m.OperationsMap })));
 
@@ -71,7 +72,7 @@ export function PortalRoutesScreen() {
       vehicles: state.vehicles,
     }))
   );
-  const canManageRoutes = Boolean(user && ['owner', 'admin'].includes(user.role));
+  const canManageRoutes = hasPortalPermission(user, 'routes');
   const sortedVehicles = useMemo(
     () => [...vehicles].sort((left, right) => String(left.code || '').localeCompare(String(right.code || ''))),
     [vehicles]
@@ -388,12 +389,17 @@ export function PortalRoutesScreen() {
   const duplicateRoute = async (source: Vehicle) => {
     if (!source.assignedRoute || !editor.vehicleId) return;
     const route = source.assignedRoute;
+    if (!route.origin || !route.destination) {
+      setMessage('La ruta seleccionada no tiene coordenadas válidas y no puede duplicarse.');
+      setDuplicateSourceId(null);
+      return;
+    }
     const result = await assignRoute({
       vehicleId: editor.vehicleId,
       originLabel: route.originLabel || '',
       destinationLabel: route.destinationLabel || '',
-      origin: route.origin || { latitude: 0, longitude: 0 },
-      destination: route.destination || { latitude: 0, longitude: 0 },
+      origin: route.origin,
+      destination: route.destination,
     });
     setMessage(result.ok ? 'Ruta duplicada en la unidad seleccionada.' : result.message || 'No fue posible duplicar la ruta.');
     setDuplicateSourceId(null);
