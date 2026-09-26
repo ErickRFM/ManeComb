@@ -4,7 +4,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { Redirect, RouterProvider, router, usePathname } from '@/src/navigation/router';
 import { useAppStore } from '@/src/store/use-app-store';
 import { usePortalStore } from '@/features/portal/store/use-portal-store';
-import { PortalCommunicationRuntime } from '@/features/portal/communication/communication-runtime';
 import { Typography } from '@/constants/theme';
 import {
   canAccessPortal,
@@ -39,6 +38,13 @@ const PortalUsersScreen = lazy(() => import('@/features/portal/screens/portal-us
 const PortalDocumentsScreen = lazy(() => import('@/features/portal/screens/portal-documents-screen').then((module) => ({ default: module.PortalDocumentsScreen })));
 const PortalIncidentsScreen = lazy(() => import('@/features/portal/screens/portal-incidents-screen').then((module) => ({ default: module.PortalIncidentsScreen })));
 const PortalAppMovilScreen = lazy(() => import('@/features/portal/screens/portal-app-movil-screen').then((module) => ({ default: module.PortalAppMovilScreen })));
+const PortalCommunicationRuntime = lazy(() => import('@/features/portal/communication/communication-runtime').then((module) => ({ default: module.PortalCommunicationRuntime })));
+
+function PortalRuntime() {
+  const pathname = usePathname();
+  if (!pathname.startsWith('/portal')) return null;
+  return <PortalCommunicationRuntime />;
+}
 
 function BootScreen() {
   return (
@@ -272,7 +278,9 @@ export function App() {
 
   return (
     <RouterProvider>
-      <PortalCommunicationRuntime />
+      <Suspense fallback={null}>
+        <PortalRuntime />
+      </Suspense>
       <Suspense fallback={<BootScreen />}>
         <Routes />
       </Suspense>
