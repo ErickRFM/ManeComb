@@ -509,9 +509,17 @@ export const OperationsMap = React.memo(function OperationsMap({
       }];
     }),
   }), [operationalViews, selectedVehicleId]);
+  const cameraOperationalUnits = useMemo(() => {
+    if (mapMode !== 'operational') return operationalUnits;
+    const current = operationalUnits.filter((unit) => unit.gps.connectionState !== 'lost');
+    // Si el filtro actual muestra exclusivamente últimas posiciones perdidas,
+    // se encuadran esas posiciones. En la vista general, una coordenada perdida
+    // no puede arrastrar toda la cámara a escala continental.
+    return current.length ? current : operationalUnits;
+  }, [mapMode, operationalUnits]);
   const boundsPoints = useMemo(
-    () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, operationalUnits }),
-    [checkpoints, operationalUnits, replayPath, replayPosition, routeCoordinates]
+    () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, operationalUnits: cameraOperationalUnits }),
+    [cameraOperationalUnits, checkpoints, replayPath, replayPosition, routeCoordinates]
   );
   const boundsPointsRef = useRef(boundsPoints);
   boundsPointsRef.current = boundsPoints;
