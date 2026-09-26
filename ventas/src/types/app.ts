@@ -435,6 +435,15 @@ export type RouteSessionPosition = {
   createdAt?: string;
 };
 
+export type CommercialPublicProfile = {
+  brandName: string;
+  legalName: string;
+  supportEmail: string | null;
+  supportPhone: string | null;
+  bankTransferEnabled: boolean;
+  bankName: string | null;
+};
+
 export type CommercialPlan = {
   id: string;
   name: string;
