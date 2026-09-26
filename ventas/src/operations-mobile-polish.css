@@ -424,6 +424,28 @@ body:has(#operations-map-surface) #operations-kpi-grid {
     min-height: 48px !important;
   }
 
+  body:has(#operations-map-surface) #operations-unit-selector.operations-sheet-collapsed {
+    max-height: 76px !important;
+    overflow: hidden !important;
+  }
+
+  body:has(#operations-map-surface) #operations-unit-selector.operations-sheet-medium {
+    max-height: min(44dvh, 390px) !important;
+  }
+
+  body:has(#operations-map-surface) #operations-unit-selector.operations-sheet-expanded {
+    max-height: min(76dvh, 680px) !important;
+  }
+
+  body:has(#operations-map-surface):has(#operations-unit-selector.operations-sheet-medium) #operations-camera-controls {
+    bottom: calc(min(44dvh, 390px) + 18px) !important;
+  }
+
+  body:has(#operations-map-surface):has(#operations-unit-selector.operations-sheet-expanded) #operations-camera-controls {
+    bottom: auto !important;
+    top: 58px !important;
+  }
+
   body:has(#operations-map-surface) #operations-mobile-kpis {
     display: grid !important;
     gap: 6px !important;
