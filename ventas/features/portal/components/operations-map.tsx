@@ -490,6 +490,25 @@ export const OperationsMap = React.memo(function OperationsMap({
     () => vehicles.map((vehicle) => buildOperationalVehicleView(vehicle, unitByVehicleId.get(vehicle.id))),
     [unitByVehicleId, vehicles]
   );
+  const shouldClusterFleet = mapMode === 'operational' &&
+    operationalViews.filter((view) => Boolean(view.point)).length >= FLEET_CLUSTER_THRESHOLD;
+  const fleetClusterData = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point>>(() => ({
+    type: 'FeatureCollection',
+    features: operationalViews.flatMap(({ vehicle, unit, point }) => {
+      if (!point) return [];
+      const tone = getMarkerTone(vehicle, unit, selectedVehicleId);
+      return [{
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: toLngLat(point) },
+        properties: {
+          vehicleId: vehicle.id,
+          code: vehicle.code,
+          tone: tone.background,
+          selected: vehicle.id === selectedVehicleId ? 1 : 0,
+        },
+      }];
+    }),
+  }), [operationalViews, selectedVehicleId]);
   const boundsPoints = useMemo(
     () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, operationalUnits }),
     [checkpoints, operationalUnits, replayPath, replayPosition, routeCoordinates]
@@ -673,6 +692,79 @@ export const OperationsMap = React.memo(function OperationsMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+
+    let cancelled = false;
+    const sync = () => {
+      if (cancelled || !mapRef.current || !mapRef.current.isStyleLoaded()) return;
+      try {
+        if (shouldClusterFleet) syncFleetClusterLayers(mapRef.current, fleetClusterData);
+        else removeFleetClusterLayers(mapRef.current);
+      } catch (error) {
+        console.warn('[OperationsMap] no se pudo sincronizar clustering de flota', error);
+      }
+    };
+
+    if (map.isStyleLoaded()) sync();
+    else map.once('style.load', sync);
+
+    return () => {
+      cancelled = true;
+      map.off('style.load', sync);
+    };
+  }, [fleetClusterData, mapStyle, shouldClusterFleet]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !shouldClusterFleet) return;
+
+    const handleClusterClick = (event: any) => {
+      event?.originalEvent?.stopPropagation?.();
+      const feature = event?.features?.[0];
+      const coordinates = feature?.geometry?.coordinates;
+      if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+      map.easeTo({
+        center: [Number(coordinates[0]), Number(coordinates[1])],
+        duration: 420,
+        easing: cameraEasing,
+        zoom: Math.min(14, map.getZoom() + 2),
+      });
+    };
+    const handleVehicleClick = (event: any) => {
+      event?.originalEvent?.stopPropagation?.();
+      const vehicleId = String(event?.features?.[0]?.properties?.vehicleId || '');
+      if (!vehicleId) return;
+      const latest = vehiclesRef.current.find((vehicle) => vehicle.id === vehicleId);
+      if (latest) onVehiclePressRef.current?.(latest);
+    };
+    const showPointer = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const clearPointer = () => { map.getCanvas().style.cursor = ''; };
+
+    map.on('click', FLEET_CLUSTER_LAYER_ID, handleClusterClick as never);
+    map.on('click', FLEET_POINT_LAYER_ID, handleVehicleClick as never);
+    map.on('mouseenter', FLEET_CLUSTER_LAYER_ID, showPointer as never);
+    map.on('mouseenter', FLEET_POINT_LAYER_ID, showPointer as never);
+    map.on('mouseleave', FLEET_CLUSTER_LAYER_ID, clearPointer as never);
+    map.on('mouseleave', FLEET_POINT_LAYER_ID, clearPointer as never);
+
+    return () => {
+      map.off('click', FLEET_CLUSTER_LAYER_ID, handleClusterClick as never);
+      map.off('click', FLEET_POINT_LAYER_ID, handleVehicleClick as never);
+      map.off('mouseenter', FLEET_CLUSTER_LAYER_ID, showPointer as never);
+      map.off('mouseenter', FLEET_POINT_LAYER_ID, showPointer as never);
+      map.off('mouseleave', FLEET_CLUSTER_LAYER_ID, clearPointer as never);
+      map.off('mouseleave', FLEET_POINT_LAYER_ID, clearPointer as never);
+      clearPointer();
+    };
+  }, [shouldClusterFleet]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (shouldClusterFleet) {
+      vehicleMarkersRef.current.forEach((marker) => marker.remove());
+      vehicleMarkersRef.current.clear();
+      return;
+    }
     const nextIds = new Set<string>();
 
     operationalViews.forEach(({ vehicle, unit, point }) => {
@@ -713,7 +805,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         vehicleMarkersRef.current.delete(vehicleId);
       }
     });
-  }, [operationalViews, selectedVehicleId]);
+  }, [operationalViews, selectedVehicleId, shouldClusterFleet]);
 
   useEffect(() => {
     const map = mapRef.current;
