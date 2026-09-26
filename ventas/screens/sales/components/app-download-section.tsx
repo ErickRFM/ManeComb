@@ -10,7 +10,6 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import QRCode from 'qrcode';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
 import { getAppInfoRequest } from '@/src/api/client';
 import type { PortalAppInfo } from '@/src/types/app';
@@ -91,18 +90,19 @@ export function AppDownloadSection({ onPortalPress }: { onPortalPress: () => voi
   useEffect(() => {
     let active = true;
 
-    if (!downloadUrl) {
+    if (!downloadUrl || isPhone) {
       setQrDataUrl('');
       return () => {
         active = false;
       };
     }
 
-    QRCode.toDataURL(downloadUrl, {
-      width: 220,
-      margin: 1,
-      color: { dark: '#081027', light: '#FFFFFF' },
-    })
+    void import('qrcode')
+      .then(({ default: QRCode }) => QRCode.toDataURL(downloadUrl, {
+        width: 220,
+        margin: 1,
+        color: { dark: '#081027', light: '#FFFFFF' },
+      }))
       .then((value) => {
         if (active) setQrDataUrl(value);
       })
@@ -113,7 +113,7 @@ export function AppDownloadSection({ onPortalPress }: { onPortalPress: () => voi
     return () => {
       active = false;
     };
-  }, [downloadUrl]);
+  }, [downloadUrl, isPhone]);
 
   const handleDownload = () => {
     if (!downloadUrl || !statusTone.available) return;
