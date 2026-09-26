@@ -232,7 +232,7 @@ export const AppMap = forwardRef<AppMapRef, AppMapProps>(function AppMapView(
       scaleBarEnabled={scaleEnabled}
       scaleBarPosition={scaleBarPosition}
       scaleBarUnits="metric"
-      surfaceView={false}
+      surfaceView={Platform.OS === 'android'}
       style={style}
       styleURL={styleURL}>
       <Mapbox.Camera
