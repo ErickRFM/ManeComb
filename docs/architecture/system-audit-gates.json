@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "c9473429ac39949a3667fcc88f8eb270895121ab",
-    "capturedAt": "2026-09-22"
+    "commit": "2f9b5aab7df72f065007ab703a99c589ebfdd647",
+    "capturedAt": "2026-09-25"
   },
   "authorityReview": {
-    "commit": "c9473429ac39949a3667fcc88f8eb270895121ab",
-    "capturedAt": "2026-09-22",
-    "phase": "post-297-reconciled-pre-gps-clock-fix"
+    "commit": "2f9b5aab7df72f065007ab703a99c589ebfdd647",
+    "capturedAt": "2026-09-25",
+    "phase": "pr-301-tracking-map-authority-review"
   },
   "maxBaselineDriftCommits": 5,
   "maxAuthorityMapDriftCommits": 5,
