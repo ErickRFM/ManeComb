@@ -399,10 +399,10 @@ export const OperationsMap = React.memo(function OperationsMap({
         .filter((view) => Boolean(view.point))
         .map((view) => view.vehicle.id)
         .sort();
-      return `${selectedVehicleId || 'fleet'}|${locatedVehicleIds.join('|')}`;
+      return locatedVehicleIds.join('|');
     }
     return boundsPoints.map((point) => `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`).join('|');
-  }, [boundsPoints, mapMode, operationalViews, selectedVehicleId]);
+  }, [boundsPoints, mapMode, operationalViews]);
 
   useEffect(() => {
     onClickPointRef.current = onClickPoint;
@@ -719,6 +719,20 @@ export const OperationsMap = React.memo(function OperationsMap({
       if (timer) window.clearTimeout(timer);
     };
   }, [autoFit, cameraMode, fitTriggerKey, mapMode]);
+
+  useEffect(() => {
+    if (!selectedVehicleId || !mapRef.current) return;
+    const point = getVehiclePoint(unitByVehicleId.get(selectedVehicleId));
+    if (!point) return;
+    // Seleccionar desde marcador o lista es una orden explicita del usuario.
+    // Centra una sola vez sin convertir la seleccion en seguimiento permanente.
+    mapRef.current.easeTo({
+      center: toLngLat(point),
+      duration: 450,
+      easing: cameraEasing,
+      zoom: Math.max(14, mapRef.current.getZoom()),
+    });
+  }, [selectedVehicleId]);
 
   useEffect(() => {
     if (cameraMode !== 'follow' || !selectedVehicleId || !mapRef.current) return;
