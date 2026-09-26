@@ -72,7 +72,7 @@ export function PortalDriverAssignments({
                       <PortalButton
                         accessibilityLabel={`Ver documentos de ${driver.name}`}
                         icon="file-document-multiple-outline"
-                        onPress={() => router.push('/portal/documentos' as never)}
+                        onPress={() => router.push({ pathname: '/portal/documentos', params: { driverId: driver.id } } as never)}
                         size="sm"
                         variant="icon"
                       />
