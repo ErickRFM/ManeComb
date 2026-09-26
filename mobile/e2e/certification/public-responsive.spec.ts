@@ -162,12 +162,8 @@ test.describe('CERT-PROD-01 — responsive público', () => {
     }
 
     const secondaryAction = header.getByRole('button', { name: /^Ver planes\b/i });
-    if (viewport && viewport.width < 430) {
-      await expect(secondaryAction).toHaveCount(0);
-      await expect(header.getByRole('button', { name: /Iniciar sesión|Abrir portal/i })).toBeVisible();
-    } else {
-      await expect(secondaryAction).toBeVisible();
-    }
+    await expect(secondaryAction).toBeVisible();
+    await expect(header.getByRole('button', { name: /Iniciar sesión|Abrir portal/i })).toBeVisible();
 
     await assertNoDocumentOverflow(page);
   });
