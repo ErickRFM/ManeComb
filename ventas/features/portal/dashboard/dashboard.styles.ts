@@ -751,7 +751,7 @@ export const styles = StyleSheet.create({
     borderColor: portalPalette.line,
     borderBottomWidth: 1,
     gap: 2,
-    height: AppTheme.spacing.xxl * 2,
+    minHeight: AppTheme.spacing.xxl * 2,
     minWidth: 0,
     paddingHorizontal: AppTheme.spacing.xs,
     paddingVertical: AppTheme.spacing.xs,
@@ -760,6 +760,7 @@ export const styles = StyleSheet.create({
   unitCardActive: {
     backgroundColor: portalPalette.infoSoft,
     borderColor: portalPalette.accent,
+    minHeight: 82,
   },
   unitCardHover: {
     backgroundColor: portalPalette.surfaceSoft,
@@ -770,6 +771,17 @@ export const styles = StyleSheet.create({
     fontFamily: Typography.display,
     fontSize: 16,
     fontWeight: '900',
+  },
+  unitQuickMeta: {
+    gap: 1,
+    paddingTop: 3,
+  },
+  unitQuickMetaText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 13,
   },
   unitHeader: {
     alignItems: 'flex-start',
