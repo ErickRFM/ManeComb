@@ -969,20 +969,34 @@ export const styles = StyleSheet.create({
     fontWeight: '900',
     minWidth: 0,
   },
-  planDots: {
+  planCapacityNav: {
+    alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'center',
+    flexWrap: 'wrap',
     gap: 8,
-    marginTop: -28,
   },
-  planDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  planCapacityPill: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(245,247,255,0.045)',
+    borderColor: neonPalette.line,
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 14,
   },
-  planDotActive: {
-    width: 22,
+  planCapacityPillActive: {
+    backgroundColor: neonPalette.accentSoft,
+    borderColor: neonPalette.accent,
+  },
+  planCapacityPillText: {
+    color: neonPalette.mutedStrong,
+    fontFamily: Typography.body,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  planCapacityPillTextActive: {
+    color: neonPalette.text,
   },
   processRail: {
     flexDirection: 'row',
