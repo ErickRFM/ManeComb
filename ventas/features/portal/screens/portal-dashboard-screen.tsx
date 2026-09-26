@@ -220,6 +220,10 @@ export function PortalDashboardScreen() {
     if (operationsFilter === 'GPS_LOST') return getGpsState(snapshotByVehicle.get(vehicle.id), sessionsByVehicle.get(vehicle.id)?.[0]).stale;
     return true;
   }), [operationsFilter, sessionsByVehicle, snapshotByVehicle, vehicles]);
+  const visibleOperationalUnits = useMemo(() => {
+    const visibleIds = new Set(operationalVehicles.map((vehicle) => vehicle.id));
+    return operationalUnits.filter((unit) => visibleIds.has(unit.unitId));
+  }, [operationalUnits, operationalVehicles]);
   const toggleOperationsFilter = (filter: Exclude<OperationsFilter, 'ALL'>) => {
     setOperationsFilter((current) => current === filter ? 'ALL' : filter);
   };
@@ -464,7 +468,7 @@ export function PortalDashboardScreen() {
                   height="100%"
                   mapMode="operational"
                   onVehiclePress={openVehicle}
-                  operationalUnits={operationalUnits}
+                  operationalUnits={visibleOperationalUnits}
                   routeCoordinates={routeCoordinates}
                   selectedVehicleId={selectedVehicle?.id}
                   showTraffic={false}
