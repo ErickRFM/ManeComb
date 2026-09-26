@@ -23,6 +23,9 @@ requireText(dashboard, 'nativeID="operations-mobile-kpis"', 'Los KPIs móviles d
 requireText(dashboard, "useState<'collapsed' | 'medium' | 'expanded'>('collapsed')", 'El sheet móvil debe conservar sus tres estados.');
 requireText(dashboard, "current === 'collapsed' ? 'medium' : current === 'medium' ? 'expanded' : 'collapsed'", 'El encabezado debe ciclar collapsed/medium/expanded.');
 requireText(dashboard, 'operationsCounts.GPS_LOST', 'El resumen móvil debe presentar GPS perdido desde el snapshot canónico.');
+requireText(dashboard, "unit?.gps.connectionState === 'lost'", 'GPS perdido debe contar solo el estado lost canónico, no delayed/stale/never_reported.');
+requireText(dashboard, "unit?.journey?.status === 'RUNNING'", 'Activas debe salir de la Jornada canónica en vivo.');
+requireText(dashboard, 'operationalUnits={visibleOperationalUnits}', 'Filtro, lista, marcadores y bounds deben compartir el mismo subconjunto.');
 requireText(dashboardTypes, "'GPS_LOST'", 'OperationsFilter debe admitir el filtro GPS perdido.');
 
 requireText(globalCss, 'min-height: 44px;', 'El Portal debe conservar targets táctiles móviles de al menos 44px.');
@@ -83,8 +86,13 @@ for (const required of [
   "map.on('rotatestart'",
   'showCompass: false',
   'nativeID="operations-camera-controls"',
+  'FLEET_CLUSTER_THRESHOLD = 30',
+  'cluster: true',
+  'clusterMaxZoom: 13',
+  "unit.gps.connectionState !== 'lost'",
+  'zoom: Math.max(14, mapRef.current.getZoom())',
 ]) {
   requireText(operationsMap, required, `Falta protección de cámara/interacción: ${required}`);
 }
 
-console.log('ok - Operaciones móvil usa mapa principal, sheet compacto, cámara protegida y controles táctiles');
+console.log('ok - Operaciones móvil usa mapa principal, sheet de 3 estados, autoridad canónica, cámara protegida y clustering');
