@@ -11,7 +11,7 @@ import { PortalDataList, PortalDataRow } from '../../components/portal-data-list
 import { PortalPagination } from '../../components/portal-pagination';
 import { incidentFilterStatuses } from '../incidents.constants';
 import { styles } from '../incidents.styles';
-import { getSeverityMeta, getStatusMeta, getTypeIcon } from '../incidents.utils';
+import { formatIncidentType, getSeverityMeta, getStatusMeta, getTypeIcon } from '../incidents.utils';
 
 const PAGE_SIZE = 8;
 
@@ -75,7 +75,7 @@ export function PortalIncidentsList({
                   body={<>
                     <Text style={[styles.incTitle, { color: palette.text }]}>{incident.title}</Text>
                     <Text style={[styles.incMeta, { color: palette.muted }]} numberOfLines={1}>
-                      {incident.type} · {incident.vehicle?.code || incident.vehicleId || 'Sin unidad'} · {formatDate(incident.createdAt, { fallback: '' })}
+                      {formatIncidentType(incident.type)} · {incident.vehicle?.code || 'Unidad no disponible'} · {formatDate(incident.createdAt, { fallback: '' })}
                     </Text>
                   </>}
                   meta={<View style={styles.incBadges}>
