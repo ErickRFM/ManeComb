@@ -21,7 +21,7 @@ const {
   evaluateTrialEligibility
 } = require("../../services/commercial-activation");
 const { notifyCommercialOrder } = require("../../services/commercial-notifier");
-const { enrichCommercialOrder } = require("../../services/commercial-profile");
+const { enrichCommercialOrder, getCommercialProfile } = require("../../services/commercial-profile");
 const { sendChargebackUpdatedEmail } = require("../../services/domain-email-events");
 const {
   SUBSCRIPTION_UPDATE_REASONS,
@@ -234,6 +234,13 @@ router.get("/plans", (req, res) => {
   return res.json({
     ok: true,
     data: listCommercialPlans()
+  });
+});
+
+router.get("/profile", (req, res) => {
+  return res.json({
+    ok: true,
+    data: getCommercialProfile()
   });
 });
 
