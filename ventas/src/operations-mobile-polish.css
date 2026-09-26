@@ -170,6 +170,18 @@ body:has(#operations-map-surface) #operations-filters-lane {
   z-index: 38 !important;
 }
 
+body:has(#operations-map-surface) #operations-runtime-status {
+  backdrop-filter: blur(14px) saturate(1.05);
+  bottom: 16px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 41 !important;
+}
+
+body:has(#operations-map-surface):has(#operations-unit-selector) #operations-runtime-status {
+  bottom: 92px !important;
+}
+
 body:has(#operations-map-surface) #operations-filters-lane > div {
   backdrop-filter: blur(14px) saturate(1.05);
   background: rgba(7, 14, 27, 0.82) !important;
@@ -437,6 +449,15 @@ body:has(#operations-map-surface) #operations-kpi-grid {
     max-height: min(76dvh, 680px) !important;
   }
 
+  body:has(#operations-map-surface):has(#operations-unit-selector.operations-sheet-medium) #operations-runtime-status {
+    bottom: calc(min(44dvh, 390px) + 18px) !important;
+  }
+
+  body:has(#operations-map-surface):has(#operations-unit-selector.operations-sheet-expanded) #operations-runtime-status {
+    bottom: auto !important;
+    top: 58px !important;
+  }
+
   body:has(#operations-map-surface):has(#operations-unit-selector.operations-sheet-medium) #operations-camera-controls {
     bottom: calc(min(44dvh, 390px) + 18px) !important;
   }
@@ -517,6 +538,13 @@ body:has(#operations-map-surface) #operations-kpi-grid {
     left: 60px !important;
     right: calc(min(310px, 42vw) + 20px) !important;
     top: 10px !important;
+  }
+
+  body:has(#operations-map-surface) #operations-runtime-status,
+  body:has(#operations-map-surface):has(#operations-unit-selector) #operations-runtime-status {
+    bottom: 10px !important;
+    left: calc((100% - min(310px, 42vw)) / 2) !important;
+    top: auto !important;
   }
 
   body:has(#operations-map-surface) #operations-camera-controls {
