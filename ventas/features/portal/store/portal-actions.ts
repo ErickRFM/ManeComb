@@ -25,7 +25,6 @@ import {
   revokeAdminActivationKeyRequest,
   shareAdminActivationKeyRequest,
   deleteAdminActivationKeyRequest,
-  updateAppInfoRequest,
   updateIncidentStatusRequest,
 } from '../api';
 import type {
@@ -201,19 +200,6 @@ export function createPortalActions(
         const failure = resourceFailure(error, 'No fue posible cargar info de la app.');
         setLatestGlobalError(set, effectGeneration, failure.errorMessage);
         finishResourceLoad(set, 'appInfo', generation, failure);
-      }
-    },
-    updateAppInfo: async (payload) => {
-      if (get().isSubmitting) return { ok: false, message: 'Hay una operacion en curso.' };
-      set({ isSubmitting: true, error: null });
-      try {
-        const appInfo = await updateAppInfoRequest(payload);
-        set({ appInfo, isSubmitting: false });
-        return { ok: true };
-      } catch (error) {
-        const message = getMessage(error, 'No fue posible actualizar la app.');
-        set({ error: message, isSubmitting: false });
-        return { ok: false, message };
       }
     },
     loadActivationKeys: async () => {
