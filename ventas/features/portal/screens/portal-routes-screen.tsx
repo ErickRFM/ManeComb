@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
-import { router } from '@/src/navigation/router';
+import { router, useLocalSearchParams } from '@/src/navigation/router';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
@@ -53,6 +53,8 @@ function formatCandidateEvidence(candidate: LearnedRouteCandidate) {
 }
 
 export function PortalRoutesScreen() {
+  const params = useLocalSearchParams<{ vehicleId?: string | string[] }>();
+  const requestedVehicleId = Array.isArray(params.vehicleId) ? params.vehicleId[0] : params.vehicleId;
   const {
     assignRoute,
     clearRouteAssignment,
@@ -363,10 +365,17 @@ export function PortalRoutesScreen() {
   };
 
   useEffect(() => {
+    const requestedVehicle = requestedVehicleId
+      ? routeVehicles.find((vehicle) => vehicle.id === requestedVehicleId)
+      : null;
+    if (requestedVehicle && editor.vehicleId !== requestedVehicle.id) {
+      setEditor((current) => ({ ...current, vehicleId: requestedVehicle.id }));
+      return;
+    }
     if (!editor.vehicleId && routeVehicles[0]?.id) {
       setEditor((current) => ({ ...current, vehicleId: routeVehicles[0].id }));
     }
-  }, [editor.vehicleId, routeVehicles]);
+  }, [editor.vehicleId, requestedVehicleId, routeVehicles]);
 
   const setField = <T extends keyof RouteEditor>(field: T, value: RouteEditor[T]) => {
     setEditor((current) => ({ ...current, [field]: value }));
