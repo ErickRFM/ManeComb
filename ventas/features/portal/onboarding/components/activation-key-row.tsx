@@ -76,20 +76,20 @@ export function ActivationKeyRow({
               <KeyActionButton
                 icon="content-copy"
                 label="Copiar"
-                accessibilityLabel={`Copiar key ${activationKey.key}`}
+                accessibilityLabel="Copiar clave de activación"
                 onPress={() => onCopy(activationKey)}
               />
               <KeyActionButton
                 icon="share-variant-outline"
                 label="Compartir"
-                accessibilityLabel={`Compartir key ${activationKey.key}`}
+                accessibilityLabel="Compartir clave de activación"
                 onPress={() => onShare(activationKey)}
                 tone="info"
               />
               <KeyActionButton
                 icon="block-helper"
                 label="Revocar"
-                accessibilityLabel={`Revocar key ${activationKey.key}`}
+                accessibilityLabel="Revocar clave de activación"
                 onPress={() => onRevoke(activationKey)}
                 disabled={isSubmitting}
                 tone="danger"
@@ -97,7 +97,7 @@ export function ActivationKeyRow({
               <KeyActionButton
                 icon="trash-can-outline"
                 label="Eliminar"
-                accessibilityLabel={`Eliminar key ${activationKey.key}`}
+                accessibilityLabel="Eliminar clave de activación"
                 onPress={() => onDelete(activationKey)}
                 disabled={isSubmitting}
                 tone="danger"
