@@ -36,6 +36,16 @@ export function OperationalUnitCard({
       : gpsAge
         ? `Sin señal: última posición ${gpsAge}`
         : 'Sin señal: mostrando última posición';
+  const driverName = operationalUnit?.driver?.name || 'Sin conductor';
+  const speedKmh = Number(operationalUnit?.gps.speedKmh);
+  const speedLabel = Number.isFinite(speedKmh) && speedKmh >= 0 ? `${Math.round(speedKmh)} km/h` : 'Sin velocidad';
+  const gpsDetail = connectionState === 'live'
+    ? 'GPS en vivo'
+    : connectionState === 'never_reported'
+      ? 'Sin ubicación todavía'
+      : gpsAge
+        ? `Último GPS ${gpsAge}`
+        : 'Última ubicación disponible';
   return (
     <Pressable
       accessibilityRole="button"
@@ -47,6 +57,12 @@ export function OperationalUnitCard({
           <Text style={styles.unitCode}>{vehicle.code}</Text>
           <Text {...({ title: routeInfo.label } as any)} style={styles.unitMeta} numberOfLines={2}>{vehicle.plate} · {routeInfo.label}</Text>
           {gpsMessage ? <Text style={styles.unitGpsMessage} numberOfLines={1}>{gpsMessage}</Text> : null}
+          {active ? (
+            <View style={styles.unitQuickMeta}>
+              <Text style={styles.unitQuickMetaText} numberOfLines={1}>{driverName} · {speedLabel}</Text>
+              <Text style={styles.unitQuickMetaText} numberOfLines={1}>{gpsDetail}</Text>
+            </View>
+          ) : null}
         </View>
         <StatusBadge label={status.label} tone={status.tone} />
       </View>

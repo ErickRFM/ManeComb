@@ -53,6 +53,23 @@ function MapFallback({ height = 410 }: { height?: number }) {
   );
 }
 
+const operationsKpiFilters: Array<Exclude<OperationsFilter, 'ALL'> | null> = [
+  'RUNNING',
+  'STOPPED',
+  'OFF_ROUTE',
+  'GPS_LOST',
+  null,
+  null,
+];
+
+const operationsFilterLabels: Record<OperationsFilter, string> = {
+  ALL: 'Todas',
+  RUNNING: 'Activas',
+  STOPPED: 'Detenidas',
+  OFF_ROUTE: 'Fuera de ruta',
+  GPS_LOST: 'GPS perdido',
+};
+
 export function PortalDashboardScreen() {
   const params = useLocalSearchParams<{ sessionId?: string | string[]; vehicleId?: string | string[]; view?: string | string[] }>();
   const { width } = useWindowDimensions();
@@ -67,7 +84,9 @@ export function PortalDashboardScreen() {
     updateUser,
     users,
     vehicles,
+    operationalResource,
     operationalUnits,
+    socketStatus,
   } = useAppStore(
     useShallow((state) => ({
       isSubmitting: state.isSubmitting,
@@ -78,7 +97,9 @@ export function PortalDashboardScreen() {
       updateUser: state.updateUser,
       users: state.users,
       vehicles: state.vehicles,
+      operationalResource: state.operationalResource,
       operationalUnits: state.operationalUnits,
+      socketStatus: state.socketStatus,
     }))
   );
   const snapshotByVehicle = useMemo(
@@ -94,9 +115,10 @@ export function PortalDashboardScreen() {
     vehicleId: getParam(params.vehicleId) || '',
   });
   const [operationsFilter, setOperationsFilter] = useState<OperationsFilter>('ALL');
-  // En movil el panel "Unidades en mapa" arranca colapsado (item 4). En desktop
-  // siempre expandido: `showUnitList` combina el ancho con este estado.
-  const [unitListExpanded, setUnitListExpanded] = useState(false);
+  // En móvil el panel de unidades tiene tres densidades reales. El encabezado
+  // cicla collapsed -> medium -> expanded -> collapsed sin sacar al usuario del mapa.
+  const [unitSheetState, setUnitSheetState] = useState<'collapsed' | 'medium' | 'expanded'>('collapsed');
+  const unitListExpanded = unitSheetState !== 'collapsed';
   const [history, setHistory] = useState<RouteSession[]>([]);
   const [historyLimit, setHistoryLimit] = useState(historyPageSize);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -185,20 +207,56 @@ export function PortalDashboardScreen() {
   const latestSession = selectedVehicleSessions[0] || null;
   const selectedSession = history.find((session) => session.id === selectedSessionId) || latestSession || null;
   const operationsCounts = useMemo(() => {
-    const running = vehicles.filter((vehicle) => sessionsByVehicle.get(vehicle.id)?.some((session) => session.status === 'RUNNING')).length;
+    const running = vehicles.filter((vehicle) => snapshotByVehicle.get(vehicle.id)?.journey?.status === 'RUNNING').length;
     const stopped = vehicles.filter((vehicle) => snapshotByVehicle.get(vehicle.id)?.operationalState === 'stopped').length;
     const offRoute = vehicles.filter((vehicle) => Boolean(snapshotByVehicle.get(vehicle.id)?.route?.isOffRoute)).length;
-    return { ALL: vehicles.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute };
-  }, [sessionsByVehicle, snapshotByVehicle, vehicles]);
+    const gpsLost = vehicles.filter((vehicle) => snapshotByVehicle.get(vehicle.id)?.gps.connectionState === 'lost').length;
+    return { ALL: vehicles.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute, GPS_LOST: gpsLost };
+  }, [snapshotByVehicle, vehicles]);
   const operationalVehicles = useMemo(() => vehicles.filter((vehicle) => {
-    const session = sessionsByVehicle.get(vehicle.id)?.find((entry) => ['RUNNING', 'PAUSED'].includes(entry.status));
-    if (operationsFilter === 'RUNNING') return session?.status === 'RUNNING';
-    if (operationsFilter === 'STOPPED') return snapshotByVehicle.get(vehicle.id)?.operationalState === 'stopped';
-    if (operationsFilter === 'OFF_ROUTE') return Boolean(snapshotByVehicle.get(vehicle.id)?.route?.isOffRoute);
+    const unit = snapshotByVehicle.get(vehicle.id);
+    if (operationsFilter === 'RUNNING') return unit?.journey?.status === 'RUNNING';
+    if (operationsFilter === 'STOPPED') return unit?.operationalState === 'stopped';
+    if (operationsFilter === 'OFF_ROUTE') return Boolean(unit?.route?.isOffRoute);
+    if (operationsFilter === 'GPS_LOST') return unit?.gps.connectionState === 'lost';
     return true;
-  }), [operationsFilter, sessionsByVehicle, snapshotByVehicle, vehicles]);
+  }), [operationsFilter, snapshotByVehicle, vehicles]);
+  const visibleOperationalUnits = useMemo(() => {
+    const visibleIds = new Set(operationalVehicles.map((vehicle) => vehicle.id));
+    return operationalUnits.filter((unit) => visibleIds.has(unit.unitId));
+  }, [operationalUnits, operationalVehicles]);
+  const sheetOperationalVehicles = useMemo(() => {
+    if (!selectedVehicleId) return operationalVehicles;
+    const selected = operationalVehicles.find((vehicle) => vehicle.id === selectedVehicleId);
+    if (!selected) return operationalVehicles;
+    return [selected, ...operationalVehicles.filter((vehicle) => vehicle.id !== selectedVehicleId)];
+  }, [operationalVehicles, selectedVehicleId]);
+  const operationsRuntimeNotice = useMemo(() => {
+    if (operationalResource.status === 'error') {
+      return { icon: 'alert-circle-outline' as const, label: operationalResource.errorMessage || 'No fue posible actualizar las unidades.' };
+    }
+    if (operationalResource.status === 'stale') {
+      return { icon: 'alert-circle-outline' as const, label: 'Mostrando la última información disponible.' };
+    }
+    if (socketStatus === 'reconnecting' || socketStatus === 'connecting' || socketStatus === 'disconnected' || socketStatus === 'error') {
+      return { icon: 'sync' as const, label: 'Reconectando seguimiento en vivo…' };
+    }
+    if ((operationalResource.status === 'idle' || operationalResource.status === 'loading') && operationalUnits.length === 0) {
+      return { icon: 'progress-clock' as const, label: 'Cargando unidades…' };
+    }
+    if (operationsFilter !== 'ALL' && operationalVehicles.length === 0) {
+      return { icon: 'filter-outline' as const, label: `Sin unidades en “${operationsFilterLabels[operationsFilter]}”.` };
+    }
+    if (operationalResource.status === 'empty' || (operationalResource.lastSuccessfulAt && vehicles.length === 0)) {
+      return { icon: 'map-marker-off-outline' as const, label: 'No hay unidades disponibles.' };
+    }
+    return null;
+  }, [operationalResource, operationalUnits.length, operationalVehicles.length, operationsFilter, socketStatus, vehicles.length]);
   const toggleOperationsFilter = (filter: Exclude<OperationsFilter, 'ALL'>) => {
     setOperationsFilter((current) => current === filter ? 'ALL' : filter);
+  };
+  const cycleUnitSheet = () => {
+    setUnitSheetState((current) => current === 'collapsed' ? 'medium' : current === 'medium' ? 'expanded' : 'collapsed');
   };
 
   useEffect(() => {
@@ -209,7 +267,6 @@ export function PortalDashboardScreen() {
   }, [operationalVehicles, operationsFilter, routeFocusVehicleId, selectedVehicleId]);
   const operationsKpis = useMemo(() => {
     const active = operationsCounts.RUNNING;
-    const gpsLost = vehicles.filter((vehicle) => getGpsState(snapshotByVehicle.get(vehicle.id), sessionsByVehicle.get(vehicle.id)?.[0]).stale).length;
     const completed = history.filter((session) => session.status === 'FINISHED');
     const productive = completed.map(getSessionProductivity).filter((value) => Number.isFinite(value));
     const productivity = productive.length ? productive.reduce((sum, value) => sum + value, 0) / productive.length : null;
@@ -218,11 +275,11 @@ export function PortalDashboardScreen() {
       { detail: 'En jornada', icon: 'bus-multiple' as const, label: 'Unidades activas', value: String(active) },
       { detail: 'Velocidad baja', icon: 'pause-circle-outline' as const, label: 'Detenidas', value: String(operationsCounts.STOPPED) },
       { detail: 'Estado actual', icon: 'map-marker-off-outline' as const, label: 'Fuera de ruta', value: String(operationsCounts.OFF_ROUTE) },
-      { detail: 'Señal no vigente', icon: 'crosshairs-question' as const, label: 'GPS perdido', value: String(gpsLost) },
+      { detail: 'Señal no vigente', icon: 'crosshairs-question' as const, label: 'GPS perdido', value: String(operationsCounts.GPS_LOST) },
       { detail: 'Jornadas guardadas', icon: 'chart-line' as const, label: 'Productividad', value: productivity === null ? 'Sin dato' : formatPercent(productivity) },
       { detail: `${history.length} jornadas`, icon: 'map-marker-distance' as const, label: 'Distancia registrada', value: formatDistance(distance) },
     ];
-  }, [history, operationsCounts, sessionsByVehicle, snapshotByVehicle, vehicles]);
+  }, [history, operationsCounts]);
   const filteredSessions = useMemo(() => {
     const productivityMin = Number(filters.productivity);
     return history
@@ -253,7 +310,9 @@ export function PortalDashboardScreen() {
   const replayPath = useMemo(() => downsamplePositions(sessionDetail?.positions || []), [sessionDetail?.positions]);
   const openVehicle = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
-    setFilters((current) => ({ ...current, vehicleId: vehicle.id }));
+    if (isMobile) {
+      setUnitSheetState((current) => current === 'collapsed' ? 'medium' : current);
+    }
     const session = sessionsByVehicle.get(vehicle.id)?.[0];
     if (session) {
       void openSession(session);
@@ -440,7 +499,7 @@ export function PortalDashboardScreen() {
                   height="100%"
                   mapMode="operational"
                   onVehiclePress={openVehicle}
-                  operationalUnits={operationalUnits}
+                  operationalUnits={visibleOperationalUnits}
                   routeCoordinates={routeCoordinates}
                   selectedVehicleId={selectedVehicle?.id}
                   showTraffic={false}
@@ -448,24 +507,66 @@ export function PortalDashboardScreen() {
                   vehicles={operationalVehicles}
                 />
               </Suspense>
+              {operationsRuntimeNotice ? (
+                <View
+                  accessibilityLiveRegion="polite"
+                  nativeID="operations-runtime-status"
+                  style={styles.operationsRuntimeStatus}>
+                  <MaterialCommunityIcons name={operationsRuntimeNotice.icon} size={16} color={portalPalette.muted} />
+                  <Text style={styles.operationsRuntimeStatusText}>{operationsRuntimeNotice.label}</Text>
+                </View>
+              ) : null}
               {operationalVehicles.length ? (
-                <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-unit-selector" style={[styles.mapOverlaySurface, styles.unitSelectorOverlay, isMobile && !unitListExpanded ? styles.unitSelectorCollapsed : undefined]}>
+                <View
+                  {...({ className: `portal-scrollbar operations-sheet-${isMobile ? unitSheetState : 'expanded'}` } as any)}
+                  nativeID="operations-unit-selector"
+                  style={[styles.mapOverlaySurface, styles.unitSelectorOverlay, isMobile && !unitListExpanded ? styles.unitSelectorCollapsed : undefined]}>
                   <Pressable
                     accessibilityRole={isMobile ? 'button' : undefined}
                     accessibilityLabel={isMobile ? `Unidades en mapa (${operationalVehicles.length})` : undefined}
                     accessibilityState={isMobile ? { expanded: unitListExpanded } : undefined}
                     disabled={!isMobile}
-                    onPress={() => setUnitListExpanded((current) => !current)}
+                    onPress={cycleUnitSheet}
                     style={styles.unitSelectorHeader}>
-                    <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
+                    <View style={styles.unitSelectorHeading}>
+                      <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
+                      {isMobile ? (
+                        <Text style={styles.unitSelectorSummary}>
+                          {operationsCounts.RUNNING} activas · {operationsCounts.STOPPED} detenidas · {operationsCounts.GPS_LOST} GPS
+                        </Text>
+                      ) : null}
+                    </View>
                     {isMobile ? (
                       <View style={styles.unitSelectorHeaderMeta}>
                         <Text style={styles.unitSelectorCount}>{operationalVehicles.length}</Text>
-                        <MaterialCommunityIcons name={unitListExpanded ? 'chevron-down' : 'chevron-up'} size={18} color={portalPalette.muted} />
+                        <MaterialCommunityIcons name={unitSheetState === 'expanded' ? 'chevron-down' : 'chevron-up'} size={18} color={portalPalette.muted} />
                       </View>
                     ) : null}
                   </Pressable>
-                  {!isMobile || unitListExpanded ? operationalVehicles.map((vehicle) => (
+                  {isMobile && unitListExpanded ? (
+                    <View nativeID="operations-mobile-kpis" style={styles.mobileKpiGrid}>
+                      {operationsKpis.slice(0, 4).map((kpi, index) => {
+                        const filter = operationsKpiFilters[index];
+                        return (
+                          <Pressable
+                            key={kpi.label}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: filter ? operationsFilter === filter : false }}
+                            onPress={() => filter && toggleOperationsFilter(filter)}
+                            style={[styles.mobileKpiCard, filter && operationsFilter === filter ? styles.operationsFilterActive : undefined]}>
+                            <View style={styles.mobileKpiTop}>
+                              <MaterialCommunityIcons name={kpi.icon} size={16} color={portalPalette.accent} />
+                              <Text style={styles.mobileKpiLabel}>{kpi.label}</Text>
+                            </View>
+                            <Text style={styles.mobileKpiValue}>{kpi.value}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                  {!isMobile || unitListExpanded ? sheetOperationalVehicles
+                    .slice(0, isMobile && unitSheetState === 'medium' ? 3 : sheetOperationalVehicles.length)
+                    .map((vehicle) => (
                     <OperationalUnitCard
                       key={vehicle.id}
                       active={vehicle.id === selectedVehicle?.id}
@@ -476,6 +577,12 @@ export function PortalDashboardScreen() {
                       onOpen={() => showRoute(vehicle)}
                     />
                   )) : null}
+                  {isMobile && unitSheetState === 'medium' && operationalVehicles.length > 3 ? (
+                    <Pressable accessibilityRole="button" onPress={() => setUnitSheetState('expanded')} style={styles.unitSheetMoreButton}>
+                      <Text style={styles.unitSheetMoreText}>Ver {operationalVehicles.length - 3} unidades más</Text>
+                      <MaterialCommunityIcons name="chevron-up" size={17} color={portalPalette.muted} />
+                    </Pressable>
+                  ) : null}
                 </View>
               ) : null}
               {/* El carril no captura eventos: solo el chip es interactivo, para
@@ -484,12 +591,13 @@ export function PortalDashboardScreen() {
                 <View style={[styles.mapOverlaySurface, styles.filtersOverlay]}>
                   <Pressable
                     accessibilityRole="button"
+                    accessibilityLabel={`Filtro ${operationsFilterLabels[operationsFilter]}, ${operationsCounts[operationsFilter]} unidades`}
                     accessibilityState={{ selected: operationsFilter === 'ALL' }}
                     onPress={() => setOperationsFilter('ALL')}
-                    style={[styles.operationsFilter, operationsFilter === 'ALL' ? styles.operationsFilterActive : undefined]}>
+                    style={[styles.operationsFilter, operationsFilter !== 'ALL' ? styles.operationsFilterActive : undefined]}>
                     <View style={styles.filterStatusDot} />
-                    <Text style={styles.operationsFilterText}>Todas</Text>
-                    <Text style={styles.operationsFilterCount}>{operationsCounts.ALL}</Text>
+                    <Text style={styles.operationsFilterText}>{operationsFilterLabels[operationsFilter]}</Text>
+                    <Text style={styles.operationsFilterCount}>{operationsCounts[operationsFilter]}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -498,7 +606,7 @@ export function PortalDashboardScreen() {
           <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-kpi-grid" style={styles.kpiRow}>
             <View style={styles.kpiTrack}>
               {operationsKpis.map((kpi, index) => {
-                const filter = index === 0 ? 'RUNNING' : index === 1 ? 'STOPPED' : index === 2 ? 'OFF_ROUTE' : null;
+                const filter = operationsKpiFilters[index];
                 const Container = filter ? Pressable : View;
                 return (
                 <Container

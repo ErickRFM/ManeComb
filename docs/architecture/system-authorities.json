@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "f25de8df878c5f90d69c8113a5347da6e12bf010",
-    "capturedAt": "2026-09-07",
-    "phase": "post-273-mobile-ui-and-gps-review"
+    "commit": "b153b2d19eed229f7f5459924d1f2e9b9c2e1cf4",
+    "capturedAt": "2026-09-25",
+    "phase": "pr-301-tracking-map-final-acceptance"
   },
   "products": [
     {
@@ -422,7 +422,12 @@
         "backend/src/domain/operational-unit-snapshot.js",
         "backend/src/services/vehicle-location-ingestion.js",
         "backend/src/services/operational-units-service.js",
-        "backend/src/services/operational-freshness-sweeper.js"
+        "backend/src/services/operational-freshness-sweeper.js",
+        "backend/src/domain/gps-telemetry-state.js",
+        "backend/src/config/route-corridor.js",
+        "backend/src/services/route-progress.js",
+        "backend/src/services/route-event-engine-core.js",
+        "shared/operational-contract"
       ],
       "consumers": [
         "sales-portal",

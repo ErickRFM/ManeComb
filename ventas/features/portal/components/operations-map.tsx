@@ -86,11 +86,12 @@ function getDriverName(unit?: OperationalUnitSnapshot) {
 function getMarkerTone(vehicle: Vehicle, unit?: OperationalUnitSnapshot, selectedVehicleId?: string | null): { background: string; border: string } {
   if (vehicle.id === selectedVehicleId) return { background: portalPalette.accent, border: '#fff' };
   if (unit?.route?.isOffRoute) return { background: '#d32f2f', border: '#fff' };
-  // Solo un enlace vivo sostiene el color operativo. `delayed` en adelante se
-  // atenua a gris: la ultima posicion sigue dibujandose, pero no afirma salud.
-  if (unit?.gps.connectionState !== 'live') return { background: '#757575', border: '#fff' };
-  if (vehicle.status === 'maintenance' || vehicle.status === 'offline') return { background: portalPalette.warning, border: '#fff' };
-  return { background: portalPalette.info, border: '#fff' };
+  // Solo un enlace vivo sostiene un color operativo. Desde `delayed` la ultima
+  // posicion permanece visible, pero se presenta neutra para no fingir salud.
+  if (unit?.gps.connectionState !== 'live') return { background: '#64748b', border: '#fff' };
+  if (vehicle.status === 'maintenance' || vehicle.status === 'offline') return { background: '#475569', border: '#fff' };
+  if (unit?.operationalState === 'stopped') return { background: portalPalette.warning, border: '#fff' };
+  return { background: portalPalette.success, border: '#fff' };
 }
 
 /**
@@ -111,6 +112,7 @@ function createMarkerElement({ background, border, label, title, shape }: { back
   element.type = 'button';
   element.className = `operations-map-marker operations-map-marker--${shape}`;
   element.textContent = label;
+  element.setAttribute('aria-label', title || label);
   if (title) element.title = title;
   element.style.alignItems = 'center';
   element.style.background = background;
@@ -153,11 +155,14 @@ function getBoundsPoints({
 }
 
 const FIT_PADDING = {
-  top: AppTheme.spacing.xxl * 2,
-  right: AppTheme.spacing.xxl * 2,
-  bottom: AppTheme.spacing.xxl * 5,
-  left: AppTheme.spacing.xxl * 7,
+  top: 84,
+  right: 64,
+  bottom: 132,
+  left: 64,
 };
+const MIN_OPERATIONAL_AUTO_ZOOM = 8.5;
+const SINGLE_VEHICLE_AUTO_ZOOM = 15;
+const MAX_AUTO_FIT_ZOOM = 15;
 // Por debajo de esto el canvas todavia no tiene layout util: reintentamos en vez de encuadrar.
 const MIN_FIT_VIEWPORT = 48;
 // mapbox-gl 2.15 `_cameraForBounds` calcula scaleX/scaleY como
@@ -199,14 +204,123 @@ const GEO_TIMEOUT_MS = 8000;
 const GEO_MAX_AGE_MS = 300000; // una posicion de hasta 5 min basta para centrar ciudad
 const GEO_CITY_ZOOM = 11; // nivel ciudad/region
 
+const FLEET_CLUSTER_THRESHOLD = 30;
+const FLEET_CLUSTER_SOURCE_ID = 'operations-fleet-cluster-source';
+const FLEET_CLUSTER_LAYER_ID = 'operations-fleet-clusters';
+const FLEET_CLUSTER_COUNT_LAYER_ID = 'operations-fleet-cluster-count';
+const FLEET_POINT_LAYER_ID = 'operations-fleet-points';
+const FLEET_POINT_LABEL_LAYER_ID = 'operations-fleet-point-labels';
+
+function removeFleetClusterLayers(map: MapboxMap) {
+  [
+    FLEET_POINT_LABEL_LAYER_ID,
+    FLEET_POINT_LAYER_ID,
+    FLEET_CLUSTER_COUNT_LAYER_ID,
+    FLEET_CLUSTER_LAYER_ID,
+  ].forEach((layerId) => {
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+  });
+  if (map.getSource(FLEET_CLUSTER_SOURCE_ID)) map.removeSource(FLEET_CLUSTER_SOURCE_ID);
+}
+
+function syncFleetClusterLayers(
+  map: MapboxMap,
+  data: GeoJSON.FeatureCollection<GeoJSON.Point>
+) {
+  const source = map.getSource(FLEET_CLUSTER_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
+  if (source) {
+    source.setData(data);
+  } else {
+    map.addSource(FLEET_CLUSTER_SOURCE_ID, {
+      type: 'geojson',
+      data,
+      cluster: true,
+      clusterMaxZoom: 13,
+      clusterRadius: 48,
+    });
+  }
+
+  if (!map.getLayer(FLEET_CLUSTER_LAYER_ID)) {
+    map.addLayer({
+      id: FLEET_CLUSTER_LAYER_ID,
+      type: 'circle',
+      source: FLEET_CLUSTER_SOURCE_ID,
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': 'rgba(7, 14, 27, 0.94)',
+        'circle-radius': ['step', ['get', 'point_count'], 18, 10, 22, 50, 27] as any,
+        'circle-stroke-color': portalPalette.accent,
+        'circle-stroke-width': 2,
+      },
+    });
+  }
+
+  if (!map.getLayer(FLEET_CLUSTER_COUNT_LAYER_ID)) {
+    map.addLayer({
+      id: FLEET_CLUSTER_COUNT_LAYER_ID,
+      type: 'symbol',
+      source: FLEET_CLUSTER_SOURCE_ID,
+      filter: ['has', 'point_count'],
+      layout: {
+        'text-field': ['get', 'point_count_abbreviated'] as any,
+        'text-size': 12,
+      },
+      paint: {
+        'text-color': '#FFFFFF',
+      },
+    });
+  }
+
+  if (!map.getLayer(FLEET_POINT_LAYER_ID)) {
+    map.addLayer({
+      id: FLEET_POINT_LAYER_ID,
+      type: 'circle',
+      source: FLEET_CLUSTER_SOURCE_ID,
+      filter: ['!', ['has', 'point_count']],
+      paint: {
+        'circle-color': ['get', 'tone'] as any,
+        'circle-radius': 17,
+        'circle-stroke-color': ['case', ['==', ['get', 'selected'], 1], '#FFFFFF', 'rgba(255,255,255,.82)'] as any,
+        'circle-stroke-width': ['case', ['==', ['get', 'selected'], 1], 3, 2] as any,
+      },
+    });
+  }
+
+  if (!map.getLayer(FLEET_POINT_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: FLEET_POINT_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: FLEET_CLUSTER_SOURCE_ID,
+      filter: ['!', ['has', 'point_count']],
+      layout: {
+        'text-field': ['get', 'code'] as any,
+        'text-size': 10,
+        'text-offset': [0, 0],
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': '#FFFFFF',
+        'text-halo-color': 'rgba(7,14,27,.78)',
+        'text-halo-width': 1,
+      },
+    });
+  }
+}
+
 // Devuelve false cuando el encuadre no se pudo aplicar todavia (canvas sin layout),
 // para que quien llama reintente en lugar de marcar el encuadre como hecho.
-function applyCamera(map: MapboxMap, points: GeoPoint[]): boolean {
+function applyCamera(
+  map: MapboxMap,
+  points: GeoPoint[],
+  policy: { minZoom?: number; singleZoom?: number } = {}
+): boolean {
   const valid = toValidPoints(points);
   if (!valid.length) return true;
 
+  const minZoom = Math.max(0, Number(policy.minZoom) || 0);
+  const singleZoom = Math.min(MAX_AUTO_FIT_ZOOM, Math.max(minZoom, Number(policy.singleZoom) || 14));
   const centerOn = (point: GeoPoint) => {
-    map.easeTo({ center: toLngLat(point), duration: 500, easing: cameraEasing, zoom: 14 });
+    map.easeTo({ center: toLngLat(point), duration: 500, easing: cameraEasing, zoom: singleZoom });
   };
 
   try {
@@ -229,7 +343,22 @@ function applyCamera(map: MapboxMap, points: GeoPoint[]): boolean {
       return true;
     }
 
-    map.fitBounds(bounds, { duration: 550, easing: cameraEasing, padding });
+    const camera = map.cameraForBounds(bounds, { maxZoom: MAX_AUTO_FIT_ZOOM, padding });
+    const cameraZoom = Number(camera?.zoom);
+    if (camera?.center && Number.isFinite(cameraZoom)) {
+      // El centro operativo no debe arrancar a escala continental por un outlier
+      // GPS. Se conserva el centro calculado por Mapbox, pero el auto-encuadre se
+      // limita a una escala regional. El usuario siempre puede alejar manualmente.
+      map.easeTo({
+        center: camera.center,
+        duration: 550,
+        easing: cameraEasing,
+        zoom: Math.max(minZoom, Math.min(MAX_AUTO_FIT_ZOOM, cameraZoom)),
+      });
+      return true;
+    }
+
+    map.fitBounds(bounds, { duration: 550, easing: cameraEasing, maxZoom: MAX_AUTO_FIT_ZOOM, padding });
     return true;
   } catch (error) {
     // Blindaje: un fallo de camara degrada a mapa sin encuadre, nunca tumba la pantalla.
@@ -361,9 +490,36 @@ export const OperationsMap = React.memo(function OperationsMap({
     () => vehicles.map((vehicle) => buildOperationalVehicleView(vehicle, unitByVehicleId.get(vehicle.id))),
     [unitByVehicleId, vehicles]
   );
+  const shouldClusterFleet = mapMode === 'operational' &&
+    operationalViews.filter((view) => Boolean(view.point)).length >= FLEET_CLUSTER_THRESHOLD;
+  const fleetClusterData = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point>>(() => ({
+    type: 'FeatureCollection',
+    features: operationalViews.flatMap(({ vehicle, unit, point }) => {
+      if (!point) return [];
+      const tone = getMarkerTone(vehicle, unit, selectedVehicleId);
+      return [{
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: toLngLat(point) },
+        properties: {
+          vehicleId: vehicle.id,
+          code: vehicle.code,
+          tone: tone.background,
+          selected: vehicle.id === selectedVehicleId ? 1 : 0,
+        },
+      }];
+    }),
+  }), [operationalViews, selectedVehicleId]);
+  const cameraOperationalUnits = useMemo(() => {
+    if (mapMode !== 'operational') return operationalUnits;
+    const current = operationalUnits.filter((unit) => unit.gps.connectionState !== 'lost');
+    // Si el filtro actual muestra exclusivamente últimas posiciones perdidas,
+    // se encuadran esas posiciones. En la vista general, una coordenada perdida
+    // no puede arrastrar toda la cámara a escala continental.
+    return current.length ? current : operationalUnits;
+  }, [mapMode, operationalUnits]);
   const boundsPoints = useMemo(
-    () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, operationalUnits }),
-    [checkpoints, operationalUnits, replayPath, replayPosition, routeCoordinates]
+    () => getBoundsPoints({ checkpoints, replayPath, replayPosition, routeCoordinates, operationalUnits: cameraOperationalUnits }),
+    [cameraOperationalUnits, checkpoints, replayPath, replayPosition, routeCoordinates]
   );
   const boundsPointsRef = useRef(boundsPoints);
   boundsPointsRef.current = boundsPoints;
@@ -373,10 +529,10 @@ export const OperationsMap = React.memo(function OperationsMap({
         .filter((view) => Boolean(view.point))
         .map((view) => view.vehicle.id)
         .sort();
-      return `${selectedVehicleId || 'fleet'}|${locatedVehicleIds.join('|')}`;
+      return locatedVehicleIds.join('|');
     }
     return boundsPoints.map((point) => `${point.latitude.toFixed(5)},${point.longitude.toFixed(5)}`).join('|');
-  }, [boundsPoints, mapMode, operationalViews, selectedVehicleId]);
+  }, [boundsPoints, mapMode, operationalViews]);
 
   useEffect(() => {
     onClickPointRef.current = onClickPoint;
@@ -439,8 +595,13 @@ export const OperationsMap = React.memo(function OperationsMap({
     map.on('click', (event) => {
       onClickPointRef.current?.({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
     });
-    map.on('dragstart', () => setCameraMode('user'));
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: true, showZoom: true }), 'top-right');
+    const markUserCamera = (event: { originalEvent?: unknown }) => {
+      if (event.originalEvent) setCameraMode('user');
+    };
+    map.on('dragstart', markUserCamera as never);
+    map.on('zoomstart', markUserCamera as never);
+    map.on('rotatestart', markUserCamera as never);
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false, showZoom: true }), 'top-right');
     map.addControl(new mapboxgl.AttributionControl({ compact: true }), 'bottom-right');
     map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-right');
     mapRef.current = map;
@@ -458,6 +619,9 @@ export const OperationsMap = React.memo(function OperationsMap({
       replayMarkerRef.current?.remove();
       map.off('error', handleMapError);
       map.off('webglcontextlost', handleWebGLContextLost);
+      map.off('dragstart', markUserCamera as never);
+      map.off('zoomstart', markUserCamera as never);
+      map.off('rotatestart', markUserCamera as never);
       resizeObserver?.disconnect();
       map.remove();
       mapRef.current = null;
@@ -536,6 +700,79 @@ export const OperationsMap = React.memo(function OperationsMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+
+    let cancelled = false;
+    const sync = () => {
+      if (cancelled || !mapRef.current || !mapRef.current.isStyleLoaded()) return;
+      try {
+        if (shouldClusterFleet) syncFleetClusterLayers(mapRef.current, fleetClusterData);
+        else removeFleetClusterLayers(mapRef.current);
+      } catch (error) {
+        console.warn('[OperationsMap] no se pudo sincronizar clustering de flota', error);
+      }
+    };
+
+    if (map.isStyleLoaded()) sync();
+    else map.once('style.load', sync);
+
+    return () => {
+      cancelled = true;
+      map.off('style.load', sync);
+    };
+  }, [fleetClusterData, mapStyle, shouldClusterFleet]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !shouldClusterFleet) return;
+
+    const handleClusterClick = (event: any) => {
+      event?.originalEvent?.stopPropagation?.();
+      const feature = event?.features?.[0];
+      const coordinates = feature?.geometry?.coordinates;
+      if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+      map.easeTo({
+        center: [Number(coordinates[0]), Number(coordinates[1])],
+        duration: 420,
+        easing: cameraEasing,
+        zoom: Math.min(14, map.getZoom() + 2),
+      });
+    };
+    const handleVehicleClick = (event: any) => {
+      event?.originalEvent?.stopPropagation?.();
+      const vehicleId = String(event?.features?.[0]?.properties?.vehicleId || '');
+      if (!vehicleId) return;
+      const latest = vehiclesRef.current.find((vehicle) => vehicle.id === vehicleId);
+      if (latest) onVehiclePressRef.current?.(latest);
+    };
+    const showPointer = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const clearPointer = () => { map.getCanvas().style.cursor = ''; };
+
+    map.on('click', FLEET_CLUSTER_LAYER_ID, handleClusterClick as never);
+    map.on('click', FLEET_POINT_LAYER_ID, handleVehicleClick as never);
+    map.on('mouseenter', FLEET_CLUSTER_LAYER_ID, showPointer as never);
+    map.on('mouseenter', FLEET_POINT_LAYER_ID, showPointer as never);
+    map.on('mouseleave', FLEET_CLUSTER_LAYER_ID, clearPointer as never);
+    map.on('mouseleave', FLEET_POINT_LAYER_ID, clearPointer as never);
+
+    return () => {
+      map.off('click', FLEET_CLUSTER_LAYER_ID, handleClusterClick as never);
+      map.off('click', FLEET_POINT_LAYER_ID, handleVehicleClick as never);
+      map.off('mouseenter', FLEET_CLUSTER_LAYER_ID, showPointer as never);
+      map.off('mouseenter', FLEET_POINT_LAYER_ID, showPointer as never);
+      map.off('mouseleave', FLEET_CLUSTER_LAYER_ID, clearPointer as never);
+      map.off('mouseleave', FLEET_POINT_LAYER_ID, clearPointer as never);
+      clearPointer();
+    };
+  }, [shouldClusterFleet]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (shouldClusterFleet) {
+      vehicleMarkersRef.current.forEach((marker) => marker.remove());
+      vehicleMarkersRef.current.clear();
+      return;
+    }
     const nextIds = new Set<string>();
 
     operationalViews.forEach(({ vehicle, unit, point }) => {
@@ -563,6 +800,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         const element = marker.getElement();
         element.textContent = vehicle.code;
         element.title = `${vehicle.code} · ${getDriverName(unit)}${getMarkerGpsSuffix(unit)}`;
+        element.setAttribute('aria-label', element.title);
         element.style.background = markerTone.background;
         element.style.border = `2px solid ${markerTone.border}`;
         element.classList.toggle('is-active', vehicle.id === selectedVehicleId);
@@ -575,7 +813,7 @@ export const OperationsMap = React.memo(function OperationsMap({
         vehicleMarkersRef.current.delete(vehicleId);
       }
     });
-  }, [operationalViews, selectedVehicleId]);
+  }, [operationalViews, selectedVehicleId, shouldClusterFleet]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -665,7 +903,10 @@ export const OperationsMap = React.memo(function OperationsMap({
     let timer = 0;
     const attempt = () => {
       if (cancelled || !mapRef.current) return;
-      if (applyCamera(mapRef.current, points)) {
+      const cameraPolicy = mapMode === 'operational'
+        ? { minZoom: MIN_OPERATIONAL_AUTO_ZOOM, singleZoom: SINGLE_VEHICLE_AUTO_ZOOM }
+        : undefined;
+      if (applyCamera(mapRef.current, points, cameraPolicy)) {
         fittedKeyRef.current = fitTriggerKey;
         return;
       }
@@ -680,7 +921,21 @@ export const OperationsMap = React.memo(function OperationsMap({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [autoFit, cameraMode, fitTriggerKey]);
+  }, [autoFit, cameraMode, fitTriggerKey, mapMode]);
+
+  useEffect(() => {
+    if (!selectedVehicleId || !mapRef.current) return;
+    const point = getVehiclePoint(unitByVehicleId.get(selectedVehicleId));
+    if (!point) return;
+    // Seleccionar desde marcador o lista es una orden explicita del usuario.
+    // Centra una sola vez sin convertir la seleccion en seguimiento permanente.
+    mapRef.current.easeTo({
+      center: toLngLat(point),
+      duration: 450,
+      easing: cameraEasing,
+      zoom: Math.max(14, mapRef.current.getZoom()),
+    });
+  }, [selectedVehicleId]);
 
   useEffect(() => {
     if (cameraMode !== 'follow' || !selectedVehicleId || !mapRef.current) return;
@@ -790,16 +1045,24 @@ export const OperationsMap = React.memo(function OperationsMap({
   }
 
   return (
-    <View style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 0 }]}>
+    <View nativeID={mapMode === 'operational' ? 'operations-map-canvas' : undefined} style={[styles.map, { height, minHeight: typeof height === 'number' ? height : 0 }]}>
       <View ref={hostRef as never} style={styles.mapCanvas} />
       {mapMode === 'operational' ? (
-        <View style={styles.cameraControls}>
+        <View nativeID="operations-camera-controls" style={styles.cameraControls}>
           <Pressable
             accessibilityLabel="Centrar flota"
             onPress={() => {
               setCameraMode('center');
               fittedKeyRef.current = '';
-              if (mapRef.current) applyCamera(mapRef.current, boundsPointsRef.current);
+              if (mapRef.current) {
+                applyCamera(
+                  mapRef.current,
+                  boundsPointsRef.current,
+                  mapMode === 'operational'
+                    ? { minZoom: MIN_OPERATIONAL_AUTO_ZOOM, singleZoom: SINGLE_VEHICLE_AUTO_ZOOM }
+                    : undefined
+                );
+              }
             }}
             style={[styles.cameraButton, cameraMode === 'center' ? styles.cameraButtonActive : undefined]}>
             <MaterialCommunityIcons name="crosshairs-gps" size={17} color={portalPalette.text} />
