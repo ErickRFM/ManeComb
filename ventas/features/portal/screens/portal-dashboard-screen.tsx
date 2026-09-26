@@ -225,6 +225,12 @@ export function PortalDashboardScreen() {
     const visibleIds = new Set(operationalVehicles.map((vehicle) => vehicle.id));
     return operationalUnits.filter((unit) => visibleIds.has(unit.unitId));
   }, [operationalUnits, operationalVehicles]);
+  const sheetOperationalVehicles = useMemo(() => {
+    if (!selectedVehicleId) return operationalVehicles;
+    const selected = operationalVehicles.find((vehicle) => vehicle.id === selectedVehicleId);
+    if (!selected) return operationalVehicles;
+    return [selected, ...operationalVehicles.filter((vehicle) => vehicle.id !== selectedVehicleId)];
+  }, [operationalVehicles, selectedVehicleId]);
   const operationsRuntimeNotice = useMemo(() => {
     if (operationalResource.status === 'error') {
       return { icon: 'alert-circle-outline' as const, label: operationalResource.errorMessage || 'No fue posible actualizar las unidades.' };
@@ -304,6 +310,9 @@ export function PortalDashboardScreen() {
   const replayPath = useMemo(() => downsamplePositions(sessionDetail?.positions || []), [sessionDetail?.positions]);
   const openVehicle = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
+    if (isMobile) {
+      setUnitSheetState((current) => current === 'collapsed' ? 'medium' : current);
+    }
     const session = sessionsByVehicle.get(vehicle.id)?.[0];
     if (session) {
       void openSession(session);
@@ -555,8 +564,8 @@ export function PortalDashboardScreen() {
                       })}
                     </View>
                   ) : null}
-                  {!isMobile || unitListExpanded ? operationalVehicles
-                    .slice(0, isMobile && unitSheetState === 'medium' ? 3 : operationalVehicles.length)
+                  {!isMobile || unitListExpanded ? sheetOperationalVehicles
+                    .slice(0, isMobile && unitSheetState === 'medium' ? 3 : sheetOperationalVehicles.length)
                     .map((vehicle) => (
                     <OperationalUnitCard
                       key={vehicle.id}
