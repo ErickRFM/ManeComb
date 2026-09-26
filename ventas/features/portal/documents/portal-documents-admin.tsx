@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocalSearchParams } from '@/src/navigation/router';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useShallow } from 'zustand/react/shallow';
 import { MaterialCommunityIcons } from '@/src/native/vector-icons';
@@ -40,6 +41,9 @@ function isValidOptionalIsoDate(value: string) {
 }
 
 export function DocumentsAdminScreen() {
+  const params = useLocalSearchParams<{ driverId?: string | string[]; vehicleId?: string | string[] }>();
+  const requestedDriverId = Array.isArray(params.driverId) ? params.driverId[0] : params.driverId;
+  const requestedVehicleId = Array.isArray(params.vehicleId) ? params.vehicleId[0] : params.vehicleId;
   const { loadUsers, loadVehicles, user, users, vehicles } = useAppStore(useShallow((state) => ({
     loadUsers: state.loadUsers,
     loadVehicles: state.loadVehicles,
@@ -109,7 +113,15 @@ export function DocumentsAdminScreen() {
     !document.deletedAt && document.ownerType === 'driver' && document.ownerId === entry.id
   )), [documents, users]);
   const summary = useMemo(() => getDocumentSummary(documents, missingDrivers.length), [documents, missingDrivers.length]);
-  const filtered = useMemo(() => hydrated.filter((document) => matchesDocumentFilter(document, filter, search)), [hydrated, filter, search]);
+  const filtered = useMemo(() => hydrated.filter((document) => {
+    if (requestedDriverId && !(document.ownerType === 'driver' && document.ownerId === requestedDriverId)) return false;
+    if (requestedVehicleId) {
+      const directVehicleDocument = document.ownerType === 'vehicle' && document.ownerId === requestedVehicleId;
+      const driver = document.ownerType === 'driver' ? users.find((entry) => entry.id === document.ownerId) : null;
+      if (!directVehicleDocument && driver?.vehicleId !== requestedVehicleId) return false;
+    }
+    return matchesDocumentFilter(document, filter, search);
+  }), [filter, hydrated, requestedDriverId, requestedVehicleId, search, users]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const visibleDocuments = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -208,13 +220,19 @@ export function DocumentsAdminScreen() {
       <View style={styles.summaryGrid}>
         {[
           ['Activos', summary.total], ['Pendientes', summary.pending], ['Rechazados', summary.rejected],
-          ['Vencidos', summary.expired], ['Faltantes', summary.missing],
+          ['Vencidos', summary.expired], ['Conductores sin documentos', summary.missing],
         ].map(([label, value]) => <View key={String(label)} style={styles.summaryCard}>
           <Text style={styles.summaryValue}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text>
         </View>)}
       </View>
 
-      <PortalSectionCard title="Expediente documental" subtitle={message || `${filtered.length} resultados`}>
+      <PortalSectionCard
+        title="Expediente documental"
+        subtitle={message || (requestedDriverId
+          ? `Documentos de ${users.find((entry) => entry.id === requestedDriverId)?.name || 'conductor seleccionado'} · ${filtered.length} resultados`
+          : requestedVehicleId
+            ? `Documentos de la unidad seleccionada · ${filtered.length} resultados`
+            : `${filtered.length} resultados`)}>
         <View style={styles.filterRow}>
           <TextInput accessibilityLabel="Buscar documentos" value={search} onChangeText={setSearch} placeholder="Buscar conductor, unidad o documento" placeholderTextColor={palette.muted} style={styles.searchInput} />
           {filters.map((status) => <Pressable accessibilityRole="button" accessibilityState={{ selected: filter === status }} key={status} onPress={() => setFilter(status)} style={[styles.filterChip, filter === status ? styles.filterChipActive : undefined]}>
