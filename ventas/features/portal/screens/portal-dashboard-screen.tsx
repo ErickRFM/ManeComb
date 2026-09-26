@@ -111,9 +111,10 @@ export function PortalDashboardScreen() {
     vehicleId: getParam(params.vehicleId) || '',
   });
   const [operationsFilter, setOperationsFilter] = useState<OperationsFilter>('ALL');
-  // En movil el panel "Unidades en mapa" arranca colapsado (item 4). En desktop
-  // siempre expandido: `showUnitList` combina el ancho con este estado.
-  const [unitListExpanded, setUnitListExpanded] = useState(false);
+  // En móvil el panel de unidades tiene tres densidades reales. El encabezado
+  // cicla collapsed -> medium -> expanded -> collapsed sin sacar al usuario del mapa.
+  const [unitSheetState, setUnitSheetState] = useState<'collapsed' | 'medium' | 'expanded'>('collapsed');
+  const unitListExpanded = unitSheetState !== 'collapsed';
   const [history, setHistory] = useState<RouteSession[]>([]);
   const [historyLimit, setHistoryLimit] = useState(historyPageSize);
   const [historyTotal, setHistoryTotal] = useState(0);
@@ -221,6 +222,9 @@ export function PortalDashboardScreen() {
   }), [operationsFilter, sessionsByVehicle, snapshotByVehicle, vehicles]);
   const toggleOperationsFilter = (filter: Exclude<OperationsFilter, 'ALL'>) => {
     setOperationsFilter((current) => current === filter ? 'ALL' : filter);
+  };
+  const cycleUnitSheet = () => {
+    setUnitSheetState((current) => current === 'collapsed' ? 'medium' : current === 'medium' ? 'expanded' : 'collapsed');
   };
 
   useEffect(() => {
@@ -469,13 +473,16 @@ export function PortalDashboardScreen() {
                 />
               </Suspense>
               {operationalVehicles.length ? (
-                <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-unit-selector" style={[styles.mapOverlaySurface, styles.unitSelectorOverlay, isMobile && !unitListExpanded ? styles.unitSelectorCollapsed : undefined]}>
+                <View
+                  {...({ className: `portal-scrollbar operations-sheet-${isMobile ? unitSheetState : 'expanded'}` } as any)}
+                  nativeID="operations-unit-selector"
+                  style={[styles.mapOverlaySurface, styles.unitSelectorOverlay, isMobile && !unitListExpanded ? styles.unitSelectorCollapsed : undefined]}>
                   <Pressable
                     accessibilityRole={isMobile ? 'button' : undefined}
                     accessibilityLabel={isMobile ? `Unidades en mapa (${operationalVehicles.length})` : undefined}
                     accessibilityState={isMobile ? { expanded: unitListExpanded } : undefined}
                     disabled={!isMobile}
-                    onPress={() => setUnitListExpanded((current) => !current)}
+                    onPress={cycleUnitSheet}
                     style={styles.unitSelectorHeader}>
                     <View style={styles.unitSelectorHeading}>
                       <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
@@ -488,7 +495,7 @@ export function PortalDashboardScreen() {
                     {isMobile ? (
                       <View style={styles.unitSelectorHeaderMeta}>
                         <Text style={styles.unitSelectorCount}>{operationalVehicles.length}</Text>
-                        <MaterialCommunityIcons name={unitListExpanded ? 'chevron-down' : 'chevron-up'} size={18} color={portalPalette.muted} />
+                        <MaterialCommunityIcons name={unitSheetState === 'expanded' ? 'chevron-down' : 'chevron-up'} size={18} color={portalPalette.muted} />
                       </View>
                     ) : null}
                   </Pressable>
@@ -513,7 +520,9 @@ export function PortalDashboardScreen() {
                       })}
                     </View>
                   ) : null}
-                  {!isMobile || unitListExpanded ? operationalVehicles.map((vehicle) => (
+                  {!isMobile || unitListExpanded ? operationalVehicles
+                    .slice(0, isMobile && unitSheetState === 'medium' ? 3 : operationalVehicles.length)
+                    .map((vehicle) => (
                     <OperationalUnitCard
                       key={vehicle.id}
                       active={vehicle.id === selectedVehicle?.id}
@@ -524,6 +533,12 @@ export function PortalDashboardScreen() {
                       onOpen={() => showRoute(vehicle)}
                     />
                   )) : null}
+                  {isMobile && unitSheetState === 'medium' && operationalVehicles.length > 3 ? (
+                    <Pressable accessibilityRole="button" onPress={() => setUnitSheetState('expanded')} style={styles.unitSheetMoreButton}>
+                      <Text style={styles.unitSheetMoreText}>Ver {operationalVehicles.length - 3} unidades más</Text>
+                      <MaterialCommunityIcons name="chevron-up" size={17} color={portalPalette.muted} />
+                    </Pressable>
+                  ) : null}
                 </View>
               ) : null}
               {/* El carril no captura eventos: solo el chip es interactivo, para
