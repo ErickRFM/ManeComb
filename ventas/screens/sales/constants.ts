@@ -1,7 +1,5 @@
 import type { IconName } from './types';
 
-export const SUPPORT_EMAIL = 'ventas@manecomb.com';
-export const SUPPORT_PHONE = '81812345678';
 export const SYSTEM_STATUS_URL = 'https://manecomb.onrender.com/api/health';
 export const PUBLIC_DEMO_PLAN_ID = 'starter-2';
 
