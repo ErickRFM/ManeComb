@@ -6,6 +6,7 @@ import { useAppStore } from '@/src/store/use-app-store';
 import { getApiErrorMessage } from '@/src/lib/api';
 import { PortalButton } from '../components/portal-button';
 import { portalPalette } from '../portal-theme';
+import { hasPortalPermission } from '../utils/access';
 import {
   approveLearnedRouteSegmentRequest,
   getLearnedRouteSegmentsRequest,
@@ -40,7 +41,7 @@ function formatDurationDelta(value: number) {
 
 export function RouteLearningV3Review({ embedded = false, onApplied }: Props) {
   const user = useAppStore((state) => state.user);
-  const canReview = Boolean(user && ['owner', 'admin'].includes(user.role));
+  const canReview = hasPortalPermission(user, 'routes');
   const { height, width } = useWindowDimensions();
   const [candidates, setCandidates] = useState<LearnedRouteSegmentReview[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -168,7 +169,13 @@ export function RouteLearningV3Review({ embedded = false, onApplied }: Props) {
           {candidates.map((candidate) => {
             const active = candidate.id === selected?.id;
             return (
-              <Pressable key={candidate.id} onPress={() => setSelectedId(candidate.id)} style={[styles.candidate, active && styles.candidateActive]}>
+              <Pressable
+                key={candidate.id}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: active }}
+                accessibilityLabel={`Ruta sugerida ${candidate.segment.routeName}, ${formatEvidence(candidate)}, confianza ${Math.round((candidate.confidence || 0) * 100)}%`}
+                onPress={() => setSelectedId(candidate.id)}
+                style={[styles.candidate, active && styles.candidateActive]}>
                 <View style={styles.candidateTop}>
                   <Text numberOfLines={1} style={styles.candidateRoute}>{candidate.segment.routeName}</Text>
                   <StatusBadge label={`${Math.round((candidate.confidence || 0) * 100)}%`} tone={candidate.segment.stale ? 'warning' : 'info'} />
