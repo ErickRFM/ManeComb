@@ -33,6 +33,7 @@ requireText(dashboard, 'operationalResource.status', 'Carga/error deben depender
 requireText(dashboardTypes, "'GPS_LOST'", 'OperationsFilter debe admitir el filtro GPS perdido.');
 
 requireText(globalCss, 'min-height: 44px;', 'El Portal debe conservar targets táctiles móviles de al menos 44px.');
+requireText(operationsPolish, 'min-height: 44px !important;', 'Los controles operativos no deben reducir el target táctil por debajo de 44px.');
 
 requireText(main, "import './operations-mobile-polish.css';", 'Debe importarse el polish dedicado de Operaciones.');
 if (main.indexOf("import './operations-mobile-polish.css';") < main.indexOf("import './routes-map-polish.css';")) {
@@ -53,7 +54,7 @@ for (const required of [
   '@media (max-width: 920px) and (orientation: landscape)',
   'env(safe-area-inset-bottom)',
   '.mapboxgl-ctrl-group button',
-  'height: 40px !important;',
+  'height: 44px !important;',
 ]) {
   requireText(operationsPolish, required, `Falta contrato responsive: ${required}`);
 }
@@ -100,4 +101,4 @@ for (const required of [
   requireText(operationsMap, required, `Falta protección de cámara/interacción: ${required}`);
 }
 
-console.log('ok - Operaciones móvil usa mapa principal, estados runtime, sheet de 3 estados, autoridad canónica, cámara protegida y clustering');
+console.log('ok - Operaciones móvil usa mapa principal, estados runtime, sheet animado de 3 estados, targets 44px, autoridad canónica, cámara protegida y clustering');
