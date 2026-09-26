@@ -84,7 +84,9 @@ export function PortalDashboardScreen() {
     updateUser,
     users,
     vehicles,
+    operationalResource,
     operationalUnits,
+    socketStatus,
   } = useAppStore(
     useShallow((state) => ({
       isSubmitting: state.isSubmitting,
@@ -95,7 +97,9 @@ export function PortalDashboardScreen() {
       updateUser: state.updateUser,
       users: state.users,
       vehicles: state.vehicles,
+      operationalResource: state.operationalResource,
       operationalUnits: state.operationalUnits,
+      socketStatus: state.socketStatus,
     }))
   );
   const snapshotByVehicle = useMemo(
@@ -221,6 +225,27 @@ export function PortalDashboardScreen() {
     const visibleIds = new Set(operationalVehicles.map((vehicle) => vehicle.id));
     return operationalUnits.filter((unit) => visibleIds.has(unit.unitId));
   }, [operationalUnits, operationalVehicles]);
+  const operationsRuntimeNotice = useMemo(() => {
+    if (operationalResource.status === 'error') {
+      return { icon: 'alert-circle-outline' as const, label: operationalResource.errorMessage || 'No fue posible actualizar las unidades.' };
+    }
+    if (operationalResource.status === 'stale') {
+      return { icon: 'alert-circle-outline' as const, label: 'Mostrando la última información disponible.' };
+    }
+    if (socketStatus === 'reconnecting' || socketStatus === 'connecting' || socketStatus === 'disconnected' || socketStatus === 'error') {
+      return { icon: 'sync' as const, label: 'Reconectando seguimiento en vivo…' };
+    }
+    if ((operationalResource.status === 'idle' || operationalResource.status === 'loading') && operationalUnits.length === 0) {
+      return { icon: 'progress-clock' as const, label: 'Cargando unidades…' };
+    }
+    if (operationsFilter !== 'ALL' && operationalVehicles.length === 0) {
+      return { icon: 'filter-outline' as const, label: `Sin unidades en “${operationsFilterLabels[operationsFilter]}”.` };
+    }
+    if (operationalResource.status === 'empty' || (operationalResource.lastSuccessfulAt && vehicles.length === 0)) {
+      return { icon: 'map-marker-off-outline' as const, label: 'No hay unidades disponibles.' };
+    }
+    return null;
+  }, [operationalResource, operationalUnits.length, operationalVehicles.length, operationsFilter, socketStatus, vehicles.length]);
   const toggleOperationsFilter = (filter: Exclude<OperationsFilter, 'ALL'>) => {
     setOperationsFilter((current) => current === filter ? 'ALL' : filter);
   };
@@ -473,6 +498,15 @@ export function PortalDashboardScreen() {
                   vehicles={operationalVehicles}
                 />
               </Suspense>
+              {operationsRuntimeNotice ? (
+                <View
+                  accessibilityLiveRegion="polite"
+                  nativeID="operations-runtime-status"
+                  style={styles.operationsRuntimeStatus}>
+                  <MaterialCommunityIcons name={operationsRuntimeNotice.icon} size={16} color={portalPalette.muted} />
+                  <Text style={styles.operationsRuntimeStatusText}>{operationsRuntimeNotice.label}</Text>
+                </View>
+              ) : null}
               {operationalVehicles.length ? (
                 <View
                   {...({ className: `portal-scrollbar operations-sheet-${isMobile ? unitSheetState : 'expanded'}` } as any)}
