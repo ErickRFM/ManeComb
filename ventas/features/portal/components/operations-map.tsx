@@ -204,6 +204,109 @@ const GEO_TIMEOUT_MS = 8000;
 const GEO_MAX_AGE_MS = 300000; // una posicion de hasta 5 min basta para centrar ciudad
 const GEO_CITY_ZOOM = 11; // nivel ciudad/region
 
+const FLEET_CLUSTER_THRESHOLD = 30;
+const FLEET_CLUSTER_SOURCE_ID = 'operations-fleet-cluster-source';
+const FLEET_CLUSTER_LAYER_ID = 'operations-fleet-clusters';
+const FLEET_CLUSTER_COUNT_LAYER_ID = 'operations-fleet-cluster-count';
+const FLEET_POINT_LAYER_ID = 'operations-fleet-points';
+const FLEET_POINT_LABEL_LAYER_ID = 'operations-fleet-point-labels';
+
+function removeFleetClusterLayers(map: MapboxMap) {
+  [
+    FLEET_POINT_LABEL_LAYER_ID,
+    FLEET_POINT_LAYER_ID,
+    FLEET_CLUSTER_COUNT_LAYER_ID,
+    FLEET_CLUSTER_LAYER_ID,
+  ].forEach((layerId) => {
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+  });
+  if (map.getSource(FLEET_CLUSTER_SOURCE_ID)) map.removeSource(FLEET_CLUSTER_SOURCE_ID);
+}
+
+function syncFleetClusterLayers(
+  map: MapboxMap,
+  data: GeoJSON.FeatureCollection<GeoJSON.Point>
+) {
+  const source = map.getSource(FLEET_CLUSTER_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
+  if (source) {
+    source.setData(data);
+  } else {
+    map.addSource(FLEET_CLUSTER_SOURCE_ID, {
+      type: 'geojson',
+      data,
+      cluster: true,
+      clusterMaxZoom: 13,
+      clusterRadius: 48,
+    });
+  }
+
+  if (!map.getLayer(FLEET_CLUSTER_LAYER_ID)) {
+    map.addLayer({
+      id: FLEET_CLUSTER_LAYER_ID,
+      type: 'circle',
+      source: FLEET_CLUSTER_SOURCE_ID,
+      filter: ['has', 'point_count'],
+      paint: {
+        'circle-color': 'rgba(7, 14, 27, 0.94)',
+        'circle-radius': ['step', ['get', 'point_count'], 18, 10, 22, 50, 27] as any,
+        'circle-stroke-color': portalPalette.accent,
+        'circle-stroke-width': 2,
+      },
+    });
+  }
+
+  if (!map.getLayer(FLEET_CLUSTER_COUNT_LAYER_ID)) {
+    map.addLayer({
+      id: FLEET_CLUSTER_COUNT_LAYER_ID,
+      type: 'symbol',
+      source: FLEET_CLUSTER_SOURCE_ID,
+      filter: ['has', 'point_count'],
+      layout: {
+        'text-field': ['get', 'point_count_abbreviated'] as any,
+        'text-size': 12,
+      },
+      paint: {
+        'text-color': '#FFFFFF',
+      },
+    });
+  }
+
+  if (!map.getLayer(FLEET_POINT_LAYER_ID)) {
+    map.addLayer({
+      id: FLEET_POINT_LAYER_ID,
+      type: 'circle',
+      source: FLEET_CLUSTER_SOURCE_ID,
+      filter: ['!', ['has', 'point_count']],
+      paint: {
+        'circle-color': ['get', 'tone'] as any,
+        'circle-radius': 17,
+        'circle-stroke-color': ['case', ['==', ['get', 'selected'], 1], '#FFFFFF', 'rgba(255,255,255,.82)'] as any,
+        'circle-stroke-width': ['case', ['==', ['get', 'selected'], 1], 3, 2] as any,
+      },
+    });
+  }
+
+  if (!map.getLayer(FLEET_POINT_LABEL_LAYER_ID)) {
+    map.addLayer({
+      id: FLEET_POINT_LABEL_LAYER_ID,
+      type: 'symbol',
+      source: FLEET_CLUSTER_SOURCE_ID,
+      filter: ['!', ['has', 'point_count']],
+      layout: {
+        'text-field': ['get', 'code'] as any,
+        'text-size': 10,
+        'text-offset': [0, 0],
+        'text-allow-overlap': false,
+      },
+      paint: {
+        'text-color': '#FFFFFF',
+        'text-halo-color': 'rgba(7,14,27,.78)',
+        'text-halo-width': 1,
+      },
+    });
+  }
+}
+
 // Devuelve false cuando el encuadre no se pudo aplicar todavia (canvas sin layout),
 // para que quien llama reintente en lugar de marcar el encuadre como hecho.
 function applyCamera(
