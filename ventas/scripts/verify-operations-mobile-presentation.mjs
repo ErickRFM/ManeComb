@@ -20,6 +20,8 @@ requireText(dashboard, 'nativeID="operations-header-action"', 'Refresh debe segu
 requireText(dashboard, 'nativeID="operations-map-surface"', 'Falta la superficie map-first.');
 requireText(dashboard, 'nativeID="operations-unit-selector"', 'Falta el bottom-sheet de unidades.');
 requireText(dashboard, 'nativeID="operations-mobile-kpis"', 'Los KPIs móviles deben vivir dentro del sheet expandido.');
+requireText(dashboard, "useState<'collapsed' | 'medium' | 'expanded'>('collapsed')", 'El sheet móvil debe conservar sus tres estados.');
+requireText(dashboard, "current === 'collapsed' ? 'medium' : current === 'medium' ? 'expanded' : 'collapsed'", 'El encabezado debe ciclar collapsed/medium/expanded.');
 requireText(dashboard, 'operationsCounts.GPS_LOST', 'El resumen móvil debe presentar GPS perdido desde el snapshot canónico.');
 requireText(dashboardTypes, "'GPS_LOST'", 'OperationsFilter debe admitir el filtro GPS perdido.');
 
@@ -35,6 +37,9 @@ for (const required of [
   '#operations-camera-controls',
   'height: calc(100dvh - 66px - env(safe-area-inset-bottom)) !important;',
   '#operations-mobile-kpis',
+  '.operations-sheet-collapsed',
+  '.operations-sheet-medium',
+  '.operations-sheet-expanded',
   '#operations-kpi-grid',
   'display: none !important;',
   '@media (max-width: 920px) and (orientation: landscape)',
