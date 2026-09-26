@@ -53,6 +53,23 @@ function MapFallback({ height = 410 }: { height?: number }) {
   );
 }
 
+const operationsKpiFilters: Array<Exclude<OperationsFilter, 'ALL'> | null> = [
+  'RUNNING',
+  'STOPPED',
+  'OFF_ROUTE',
+  'GPS_LOST',
+  null,
+  null,
+];
+
+const operationsFilterLabels: Record<OperationsFilter, string> = {
+  ALL: 'Todas',
+  RUNNING: 'Activas',
+  STOPPED: 'Detenidas',
+  OFF_ROUTE: 'Fuera de ruta',
+  GPS_LOST: 'GPS perdido',
+};
+
 export function PortalDashboardScreen() {
   const params = useLocalSearchParams<{ sessionId?: string | string[]; vehicleId?: string | string[]; view?: string | string[] }>();
   const { width } = useWindowDimensions();
@@ -184,17 +201,22 @@ export function PortalDashboardScreen() {
   const activeSession = selectedVehicleSessions.find((session) => ['RUNNING', 'PAUSED'].includes(session.status)) || null;
   const latestSession = selectedVehicleSessions[0] || null;
   const selectedSession = history.find((session) => session.id === selectedSessionId) || latestSession || null;
+  const gpsLostCount = useMemo(
+    () => vehicles.filter((vehicle) => getGpsState(snapshotByVehicle.get(vehicle.id), sessionsByVehicle.get(vehicle.id)?.[0]).stale).length,
+    [sessionsByVehicle, snapshotByVehicle, vehicles]
+  );
   const operationsCounts = useMemo(() => {
     const running = vehicles.filter((vehicle) => sessionsByVehicle.get(vehicle.id)?.some((session) => session.status === 'RUNNING')).length;
     const stopped = vehicles.filter((vehicle) => snapshotByVehicle.get(vehicle.id)?.operationalState === 'stopped').length;
     const offRoute = vehicles.filter((vehicle) => Boolean(snapshotByVehicle.get(vehicle.id)?.route?.isOffRoute)).length;
-    return { ALL: vehicles.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute };
-  }, [sessionsByVehicle, snapshotByVehicle, vehicles]);
+    return { ALL: vehicles.length, RUNNING: running, STOPPED: stopped, OFF_ROUTE: offRoute, GPS_LOST: gpsLostCount };
+  }, [gpsLostCount, sessionsByVehicle, snapshotByVehicle, vehicles]);
   const operationalVehicles = useMemo(() => vehicles.filter((vehicle) => {
     const session = sessionsByVehicle.get(vehicle.id)?.find((entry) => ['RUNNING', 'PAUSED'].includes(entry.status));
     if (operationsFilter === 'RUNNING') return session?.status === 'RUNNING';
     if (operationsFilter === 'STOPPED') return snapshotByVehicle.get(vehicle.id)?.operationalState === 'stopped';
     if (operationsFilter === 'OFF_ROUTE') return Boolean(snapshotByVehicle.get(vehicle.id)?.route?.isOffRoute);
+    if (operationsFilter === 'GPS_LOST') return getGpsState(snapshotByVehicle.get(vehicle.id), sessionsByVehicle.get(vehicle.id)?.[0]).stale;
     return true;
   }), [operationsFilter, sessionsByVehicle, snapshotByVehicle, vehicles]);
   const toggleOperationsFilter = (filter: Exclude<OperationsFilter, 'ALL'>) => {
@@ -209,7 +231,6 @@ export function PortalDashboardScreen() {
   }, [operationalVehicles, operationsFilter, routeFocusVehicleId, selectedVehicleId]);
   const operationsKpis = useMemo(() => {
     const active = operationsCounts.RUNNING;
-    const gpsLost = vehicles.filter((vehicle) => getGpsState(snapshotByVehicle.get(vehicle.id), sessionsByVehicle.get(vehicle.id)?.[0]).stale).length;
     const completed = history.filter((session) => session.status === 'FINISHED');
     const productive = completed.map(getSessionProductivity).filter((value) => Number.isFinite(value));
     const productivity = productive.length ? productive.reduce((sum, value) => sum + value, 0) / productive.length : null;
@@ -218,11 +239,11 @@ export function PortalDashboardScreen() {
       { detail: 'En jornada', icon: 'bus-multiple' as const, label: 'Unidades activas', value: String(active) },
       { detail: 'Velocidad baja', icon: 'pause-circle-outline' as const, label: 'Detenidas', value: String(operationsCounts.STOPPED) },
       { detail: 'Estado actual', icon: 'map-marker-off-outline' as const, label: 'Fuera de ruta', value: String(operationsCounts.OFF_ROUTE) },
-      { detail: 'Señal no vigente', icon: 'crosshairs-question' as const, label: 'GPS perdido', value: String(gpsLost) },
+      { detail: 'Señal no vigente', icon: 'crosshairs-question' as const, label: 'GPS perdido', value: String(operationsCounts.GPS_LOST) },
       { detail: 'Jornadas guardadas', icon: 'chart-line' as const, label: 'Productividad', value: productivity === null ? 'Sin dato' : formatPercent(productivity) },
       { detail: `${history.length} jornadas`, icon: 'map-marker-distance' as const, label: 'Distancia registrada', value: formatDistance(distance) },
     ];
-  }, [history, operationsCounts, sessionsByVehicle, snapshotByVehicle, vehicles]);
+  }, [history, operationsCounts]);
   const filteredSessions = useMemo(() => {
     const productivityMin = Number(filters.productivity);
     return history
@@ -253,7 +274,6 @@ export function PortalDashboardScreen() {
   const replayPath = useMemo(() => downsamplePositions(sessionDetail?.positions || []), [sessionDetail?.positions]);
   const openVehicle = (vehicle: Vehicle) => {
     setSelectedVehicleId(vehicle.id);
-    setFilters((current) => ({ ...current, vehicleId: vehicle.id }));
     const session = sessionsByVehicle.get(vehicle.id)?.[0];
     if (session) {
       void openSession(session);
@@ -457,7 +477,14 @@ export function PortalDashboardScreen() {
                     disabled={!isMobile}
                     onPress={() => setUnitListExpanded((current) => !current)}
                     style={styles.unitSelectorHeader}>
-                    <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
+                    <View style={styles.unitSelectorHeading}>
+                      <Text style={styles.mapOverlayTitle}>Unidades en mapa</Text>
+                      {isMobile ? (
+                        <Text style={styles.unitSelectorSummary}>
+                          {operationsCounts.RUNNING} activas · {operationsCounts.STOPPED} detenidas · {operationsCounts.GPS_LOST} GPS
+                        </Text>
+                      ) : null}
+                    </View>
                     {isMobile ? (
                       <View style={styles.unitSelectorHeaderMeta}>
                         <Text style={styles.unitSelectorCount}>{operationalVehicles.length}</Text>
@@ -465,6 +492,27 @@ export function PortalDashboardScreen() {
                       </View>
                     ) : null}
                   </Pressable>
+                  {isMobile && unitListExpanded ? (
+                    <View nativeID="operations-mobile-kpis" style={styles.mobileKpiGrid}>
+                      {operationsKpis.slice(0, 4).map((kpi, index) => {
+                        const filter = operationsKpiFilters[index];
+                        return (
+                          <Pressable
+                            key={kpi.label}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: filter ? operationsFilter === filter : false }}
+                            onPress={() => filter && toggleOperationsFilter(filter)}
+                            style={[styles.mobileKpiCard, filter && operationsFilter === filter ? styles.operationsFilterActive : undefined]}>
+                            <View style={styles.mobileKpiTop}>
+                              <MaterialCommunityIcons name={kpi.icon} size={16} color={portalPalette.accent} />
+                              <Text style={styles.mobileKpiLabel}>{kpi.label}</Text>
+                            </View>
+                            <Text style={styles.mobileKpiValue}>{kpi.value}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  ) : null}
                   {!isMobile || unitListExpanded ? operationalVehicles.map((vehicle) => (
                     <OperationalUnitCard
                       key={vehicle.id}
@@ -484,12 +532,13 @@ export function PortalDashboardScreen() {
                 <View style={[styles.mapOverlaySurface, styles.filtersOverlay]}>
                   <Pressable
                     accessibilityRole="button"
+                    accessibilityLabel={`Filtro ${operationsFilterLabels[operationsFilter]}, ${operationsCounts[operationsFilter]} unidades`}
                     accessibilityState={{ selected: operationsFilter === 'ALL' }}
                     onPress={() => setOperationsFilter('ALL')}
-                    style={[styles.operationsFilter, operationsFilter === 'ALL' ? styles.operationsFilterActive : undefined]}>
+                    style={[styles.operationsFilter, operationsFilter !== 'ALL' ? styles.operationsFilterActive : undefined]}>
                     <View style={styles.filterStatusDot} />
-                    <Text style={styles.operationsFilterText}>Todas</Text>
-                    <Text style={styles.operationsFilterCount}>{operationsCounts.ALL}</Text>
+                    <Text style={styles.operationsFilterText}>{operationsFilterLabels[operationsFilter]}</Text>
+                    <Text style={styles.operationsFilterCount}>{operationsCounts[operationsFilter]}</Text>
                   </Pressable>
                 </View>
               </View>
@@ -498,7 +547,7 @@ export function PortalDashboardScreen() {
           <View {...({ className: 'portal-scrollbar' } as any)} nativeID="operations-kpi-grid" style={styles.kpiRow}>
             <View style={styles.kpiTrack}>
               {operationsKpis.map((kpi, index) => {
-                const filter = index === 0 ? 'RUNNING' : index === 1 ? 'STOPPED' : index === 2 ? 'OFF_ROUTE' : null;
+                const filter = operationsKpiFilters[index];
                 const Container = filter ? Pressable : View;
                 return (
                 <Container
