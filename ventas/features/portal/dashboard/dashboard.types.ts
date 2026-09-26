@@ -20,7 +20,7 @@ export type Filters = {
   vehicleId: string;
 };
 
-export type OperationsFilter = 'ALL' | 'RUNNING' | 'STOPPED' | 'OFF_ROUTE';
+export type OperationsFilter = 'ALL' | 'RUNNING' | 'STOPPED' | 'OFF_ROUTE' | 'GPS_LOST';
 
 export type RouteInfo = {
   code: string;
