@@ -885,6 +885,22 @@ export const styles = StyleSheet.create({
     fontWeight: '900',
     lineHeight: 21,
   },
+  unitSheetMoreButton: {
+    alignItems: 'center',
+    borderTopColor: 'rgba(148,163,184,.12)',
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingTop: 6,
+  },
+  unitSheetMoreText: {
+    color: portalPalette.muted,
+    fontFamily: Typography.body,
+    fontSize: 11,
+    fontWeight: '800',
+  },
   unitSelectorCount: {
     backgroundColor: portalPalette.surfaceSoft,
     borderRadius: AppTheme.radius.pill,
