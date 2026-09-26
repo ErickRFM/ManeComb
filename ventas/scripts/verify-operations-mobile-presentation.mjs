@@ -6,112 +6,80 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), 'utf8');
 
 const dashboard = read('features/portal/screens/portal-dashboard-screen.tsx');
+const dashboardTypes = read('features/portal/dashboard/dashboard.types.ts');
 const globalCss = read('src/global.css');
 const main = read('src/main.tsx');
+const operationsMap = read('features/portal/components/operations-map.tsx');
 const operationsPolish = read('src/operations-mobile-polish.css');
 
 const requireText = (source, text, message) => {
   if (!source.includes(text)) throw new Error(message);
 };
 
-requireText(
-  dashboard,
-  'nativeID="operations-header-action"',
-  'Falta el hook operations-header-action requerido para conservar Refresh en Operaciones.'
-);
-requireText(
-  dashboard,
-  'nativeID="operations-map-surface"',
-  'Falta el hook operations-map-surface requerido para acotar el workspace map-first.'
-);
-requireText(
-  dashboard,
-  'nativeID="operations-unit-selector"',
-  'Falta el selector de unidades usado como bottom-sheet móvil.'
-);
-requireText(
-  dashboard,
-  'nativeID="operations-kpi-grid"',
-  'Falta el dock de KPIs operativos.'
-);
+requireText(dashboard, 'nativeID="operations-header-action"', 'Refresh debe seguir disponible en Operaciones.');
+requireText(dashboard, 'nativeID="operations-map-surface"', 'Falta la superficie map-first.');
+requireText(dashboard, 'nativeID="operations-unit-selector"', 'Falta el bottom-sheet de unidades.');
+requireText(dashboard, 'nativeID="operations-mobile-kpis"', 'Los KPIs móviles deben vivir dentro del sheet expandido.');
+requireText(dashboard, 'operationsCounts.GPS_LOST', 'El resumen móvil debe presentar GPS perdido desde el snapshot canónico.');
+requireText(dashboardTypes, "'GPS_LOST'", 'OperationsFilter debe admitir el filtro GPS perdido.');
 
-// El target táctil global permanece; Operaciones controla únicamente la forma
-// visual de los markers para no volver a producir óvalos.
-requireText(globalCss, 'min-height: 44px;', 'El contrato asume el target táctil móvil global de 44px.');
+requireText(globalCss, 'min-height: 44px;', 'El Portal debe conservar targets táctiles móviles de al menos 44px.');
 
-requireText(
-  main,
-  "import './operations-mobile-polish.css';",
-  'operations-mobile-polish.css debe importarse explícitamente desde main.tsx.'
-);
+requireText(main, "import './operations-mobile-polish.css';", 'Debe importarse el polish dedicado de Operaciones.');
 if (main.indexOf("import './operations-mobile-polish.css';") < main.indexOf("import './routes-map-polish.css';")) {
   throw new Error('operations-mobile-polish.css debe cargarse después de routes-map-polish.css.');
 }
 
-requireText(
-  operationsPolish,
-  'body:has(#operations-map-surface) #portal-header-text',
-  'El map-first debe retirar el título visual de Centro de Operaciones.'
-);
-requireText(
-  operationsPolish,
+for (const required of [
+  '#operations-map-canvas',
+  '#operations-camera-controls',
+  'height: calc(100dvh - 66px - env(safe-area-inset-bottom)) !important;',
+  '#operations-mobile-kpis',
+  '#operations-kpi-grid',
   'display: none !important;',
-  'El título visual de Operaciones debe ocultarse para liberar altura útil.'
-);
-requireText(
-  operationsPolish,
-  '#operations-header-action > [role="button"]',
-  'Refresh debe conservar una geometría compacta sobre el mapa.'
-);
-requireText(
-  operationsPolish,
-  'height: calc(100svh - 86px) !important;',
-  'El mapa móvil debe ocupar prácticamente toda la ventana útil.'
-);
-requireText(
-  operationsPolish,
-  '#operations-unit-selector',
-  'Las unidades deben seguir disponibles como superficie flotante.'
-);
-requireText(
-  operationsPolish,
-  'bottom: 164px !important;',
-  'El selector de unidades móvil debe quedar por encima del dock KPI 2x2.'
-);
-requireText(
-  operationsPolish,
-  'grid-template-columns: repeat(2, minmax(0, 1fr)) !important;',
-  'Los cuatro KPIs principales deben formar una grilla 2x2 legible en móvil.'
-);
-requireText(
-  operationsPolish,
-  '#operations-kpi-grid > div > :nth-child(n + 5)',
-  'Los KPIs secundarios deben reservarse para superficies con más espacio.'
-);
-
-const circleRule = operationsPolish.match(/\.operations-map-marker--circle\s*\{([\s\S]*?)\}/)?.[1] || '';
-for (const declaration of [
-  'height: 36px !important;',
-  'max-height: 36px !important;',
-  'min-height: 36px !important;',
-  'width: 36px !important;',
-  'max-width: 36px !important;',
-  'min-width: 36px !important;',
+  '@media (max-width: 920px) and (orientation: landscape)',
+  'env(safe-area-inset-bottom)',
+  '.mapboxgl-ctrl-group button',
+  'height: 40px !important;',
 ]) {
-  if (!circleRule.includes(declaration)) {
-    throw new Error(`El checkpoint móvil perdió su geometría cuadrada: falta ${declaration}`);
-  }
+  requireText(operationsPolish, required, `Falta contrato responsive: ${required}`);
 }
 
 requireText(
   operationsPolish,
-  '#operations-map-surface .operations-map-marker--pill',
-  'El marcador de unidad debe permanecer acotado al mapa de Operaciones.'
+  'bottom: 8px !important;',
+  'El bottom-sheet móvil debe quedar pegado al borde útil, no encima de un dock KPI gigante.'
 );
 requireText(
   operationsPolish,
-  '#operations-map-surface .operations-map-marker::before',
-  'Los markers deben conservar pseudoárea táctil sin deformar su visual.'
+  'max-height: min(62dvh, 560px) !important;',
+  'El sheet expandido debe conservar mapa visible detrás.'
 );
 
-console.log('ok - Centro de Operaciones usa map-first, bottom-sheet, KPI 2x2 y markers no deformados');
+const circleRule = operationsPolish.match(/\.operations-map-marker--circle\s*\{([\s\S]*?)\}/)?.[1] || '';
+for (const declaration of [
+  'height: 34px !important;',
+  'max-height: 34px !important;',
+  'min-height: 34px !important;',
+  'width: 34px !important;',
+  'max-width: 34px !important;',
+  'min-width: 34px !important;',
+]) {
+  if (!circleRule.includes(declaration)) {
+    throw new Error(`El checkpoint perdió geometría compacta: falta ${declaration}`);
+  }
+}
+
+for (const required of [
+  'MIN_OPERATIONAL_AUTO_ZOOM = 8.5',
+  'SINGLE_VEHICLE_AUTO_ZOOM = 15',
+  'map.cameraForBounds',
+  "map.on('zoomstart'",
+  "map.on('rotatestart'",
+  'showCompass: false',
+  'nativeID="operations-camera-controls"',
+]) {
+  requireText(operationsMap, required, `Falta protección de cámara/interacción: ${required}`);
+}
+
+console.log('ok - Operaciones móvil usa mapa principal, sheet compacto, cámara protegida y controles táctiles');
