@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "baseline": {
     "branch": "main",
-    "commit": "e448c910a55a7861e89ca38a96f16a7bf9b9e4a2",
+    "commit": "b153b2d19eed229f7f5459924d1f2e9b9c2e1cf4",
     "capturedAt": "2026-09-25"
   },
   "authorityReview": {
-    "commit": "e448c910a55a7861e89ca38a96f16a7bf9b9e4a2",
+    "commit": "b153b2d19eed229f7f5459924d1f2e9b9c2e1cf4",
     "capturedAt": "2026-09-25",
-    "phase": "pr-301-tracking-map-final-review"
+    "phase": "pr-301-tracking-map-final-acceptance"
   },
   "maxBaselineDriftCommits": 5,
   "maxAuthorityMapDriftCommits": 5,
